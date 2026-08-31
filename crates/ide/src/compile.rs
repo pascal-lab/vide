@@ -1,20 +1,31 @@
 //! File-closure radius and a calling-thread [`compile`].
 //!
 //! This is the slang door that does not go through [`crate::elaboration`].
-//! Hover, goto, `.` / `::`, and types wait on [`Compiler::compile`] of this
-//! radius. Profile extras (instances, hierarchy) may still ask the worker.
+//! Hover, goto, `.` / `::`, and types wait on [`Compiler::compile`] of the
+//! file-closure radius. Profile diagnostics compile the profile files with
+//! the same function.
 
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
 };
 
-use base_db::{project::CompilationProfileId, source_db::SourceRootDb};
+use base_db::{
+    diagnostics_config::{
+        DiagnosticRuleSeverity, DiagnosticSelector, DiagnosticSource as SlangDiagnosticSource,
+        DiagnosticsConfig,
+    },
+    project::CompilationProfileId,
+    source_db::{SourceDb, SourceFileKind, SourceRootDb},
+};
 use design_graph::DesignGraphDb;
-use preproc_expand::{compilation_plan, db::PreprocDb};
+use preproc_expand::{
+    compilation_plan,
+    db::{CompilationDiagnostic, PreprocDb},
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use slang_sys::compilation::{Compilation, SourceSession};
-use syntax::SyntaxTreeOptions;
+use syntax::{SyntaxTreeOptions, diagnostics::SyntaxDiagnostic};
 use vfs::FileId;
 
 use crate::db::root_db::RootDb;
@@ -30,6 +41,7 @@ pub struct FileClosure {
 }
 
 impl FileClosure {
+    #[cfg(test)]
     pub fn contains(&self, file: FileId) -> bool {
         self.files.contains(&file)
     }
@@ -42,6 +54,7 @@ impl FileClosure {
 /// Direct CU names only: `F` plus catalog files named by `F`'s imports /
 /// instantiations / `::` heads. No include graph. slang-server's keystroke
 /// set; kept so tests can show the include-into-package difference.
+#[cfg(test)]
 pub fn direct_names(db: &RootDb, file: FileId) -> FileClosure {
     named_files(db, file, false)
 }
@@ -175,6 +188,16 @@ impl Compiler {
         files: impl IntoIterator<Item = FileId>,
         options: &CompileOptions,
     ) -> Compilation {
+        self.compile_inner(db, files, options, &[])
+    }
+
+    fn compile_inner(
+        &mut self,
+        db: &RootDb,
+        files: impl IntoIterator<Item = FileId>,
+        options: &CompileOptions,
+        extra: &[compilation_plan::AssignedIncludeBuffer],
+    ) -> Compilation {
         let files: Vec<FileId> = {
             let mut files: Vec<_> = files.into_iter().collect();
             files.sort_unstable_by_key(|file| file.index());
@@ -187,10 +210,18 @@ impl Compiler {
             current_hashes.insert(file, hash_text(&db.file_text(file)));
             self.put_text(db, file);
             if db.file_kind(file).is_semantic_compilation_unit() {
+                for &included in <dyn PreprocDb>::static_include_closure(db, file).files() {
+                    current_hashes.insert(included, hash_text(&db.file_text(included)));
+                }
                 for buffer in compilation_plan::assigned_include_buffers_for_file(db, file) {
+                    current_hashes.insert(buffer.file_id, hash_text(&buffer.text));
                     self.put_assigned(&buffer.path, &buffer.text);
                 }
             }
+        }
+        for buffer in extra {
+            current_hashes.insert(buffer.file_id, hash_text(&buffer.text));
+            self.put_assigned(&buffer.path, &buffer.text);
         }
 
         let parse_options = SyntaxTreeOptions {
@@ -204,13 +235,18 @@ impl Compiler {
             if !db.file_kind(file).is_semantic_compilation_unit() {
                 continue;
             }
-            if self.cu_is_fresh(db, file, &current_hashes) {
+            if self.cu_is_fresh(db, file, &current_hashes, &files, extra) {
                 continue;
             }
             let path = compilation_plan::source_buffer_path(db, file).to_string();
             let name =
                 db.file_path(file).map(|path| path.to_string()).unwrap_or_else(|| path.clone());
-            let tree = self.session.parse(&name, &path, &parse_options);
+            let tree = match db.file_kind(file) {
+                SourceFileKind::LibraryMap => {
+                    self.session.parse_library_map(&name, &path, &parse_options)
+                }
+                _ => self.session.parse(&name, &path, &parse_options),
+            };
             self.trees.insert(file, tree);
         }
         self.hashes = current_hashes;
@@ -231,31 +267,131 @@ impl Compiler {
         compilation
     }
 
-    fn cu_is_fresh(&self, db: &RootDb, file: FileId, current: &FxHashMap<FileId, u64>) -> bool {
+    /// Parse + semantic diagnostics on a compilation of `files`.
+    ///
+    /// The request does not spawn a process. Profile callers pass the profile
+    /// file set; keystroke callers pass a file closure.
+    pub fn diagnostics(
+        &mut self,
+        db: &RootDb,
+        files: impl IntoIterator<Item = FileId>,
+        options: &CompileOptions,
+        config: &DiagnosticsConfig,
+    ) -> Vec<CompilationDiagnostic> {
+        let files: Vec<FileId> = {
+            let mut files: Vec<_> = files.into_iter().collect();
+            files.sort_unstable_by_key(|file| file.index());
+            files.dedup();
+            files
+        };
+        let extra = files
+            .iter()
+            .find_map(|&file| db.file_compilation_profile(file))
+            .map(|profile| {
+                let plan = <dyn PreprocDb>::compilation_plan_for_profile(db, Some(profile));
+                compilation_plan::compilation_source_buffers_for_plan(db, &plan)
+            })
+            .unwrap_or_default();
+        let compilation = self.compile_inner(db, files.iter().copied(), options, &extra);
+        let buffer_file_ids = self.buffer_file_ids(db, &files);
+        let warning_options = warning_options(config);
+        let mut diagnostics = Vec::new();
+        if config.enabled && config.parse.enabled {
+            collect_diagnostics(
+                config,
+                SlangDiagnosticSource::Parse,
+                compilation.parse_diagnostics_with_options(&warning_options),
+                &buffer_file_ids,
+                &mut diagnostics,
+            );
+        }
+        if config.enabled && config.semantic.enabled {
+            collect_diagnostics(
+                config,
+                SlangDiagnosticSource::Semantic,
+                compilation.semantic_diagnostics_with_options(&warning_options),
+                &buffer_file_ids,
+                &mut diagnostics,
+            );
+        }
+        diagnostics
+    }
+
+    fn buffer_file_ids(&self, db: &RootDb, files: &[FileId]) -> FxHashMap<u32, FileId> {
+        let mut path_files = FxHashMap::<String, FileId>::default();
+        for &file in files {
+            path_files.insert(compilation_plan::source_buffer_path(db, file).to_string(), file);
+            if db.file_kind(file).is_semantic_compilation_unit() {
+                for buffer in compilation_plan::assigned_include_buffers_for_file(db, file) {
+                    path_files.insert(buffer.path, buffer.file_id);
+                }
+            }
+        }
+        if let Some(profile) = files.iter().find_map(|&file| db.file_compilation_profile(file)) {
+            let plan = <dyn PreprocDb>::compilation_plan_for_profile(db, Some(profile));
+            for buffer in compilation_plan::compilation_source_buffers_for_plan(db, &plan) {
+                path_files.insert(buffer.path, buffer.file_id);
+            }
+        }
+        let mut map = FxHashMap::default();
+        for (&file, tree) in &self.trees {
+            let ids = tree.buffer_ids();
+            map.insert(ids.root_buffer_id, file);
+            for source in ids.source_buffers {
+                if let Some(&file_id) = path_files.get(&source.path) {
+                    map.insert(source.buffer_id, file_id);
+                }
+            }
+        }
+        map
+    }
+
+    fn cu_is_fresh(
+        &self,
+        db: &RootDb,
+        file: FileId,
+        current: &FxHashMap<FileId, u64>,
+        files: &[FileId],
+        extra: &[compilation_plan::AssignedIncludeBuffer],
+    ) -> bool {
         if !self.trees.contains_key(&file) {
             return false;
         }
         let mut inputs = vec![file];
         inputs.extend(<dyn PreprocDb>::static_include_closure(db, file).files().iter().copied());
+        inputs.extend(
+            files
+                .iter()
+                .copied()
+                .filter(|&file| !db.file_kind(file).is_semantic_compilation_unit()),
+        );
+        inputs.extend(
+            extra
+                .iter()
+                .map(|buffer| buffer.file_id)
+                .filter(|&file| !db.file_kind(file).is_semantic_compilation_unit()),
+        );
         inputs.iter().all(|file| self.hashes.get(file) == current.get(file))
     }
 
-    fn put_text(&mut self, db: &RootDb, file: FileId) {
+    fn put_text(&mut self, db: &RootDb, file: FileId) -> bool {
         let path = compilation_plan::source_buffer_path(db, file).to_string();
         let text = db.file_text(file).to_string();
-        self.put_assigned(&path, &text);
+        self.put_assigned(&path, &text)
     }
 
-    fn put_assigned(&mut self, path: &str, text: &str) {
+    fn put_assigned(&mut self, path: &str, text: &str) -> bool {
         match self.assigned.get(path) {
             None => {
                 self.session.assign(path, text);
                 self.assigned.insert(path.to_owned(), text.to_owned());
+                true
             }
-            Some(old) if old == text => {}
+            Some(old) if old == text => false,
             Some(_) => {
                 self.session.replace_buffer(path, text);
                 self.assigned.insert(path.to_owned(), text.to_owned());
+                true
             }
         }
     }
@@ -271,6 +407,60 @@ fn hash_text(text: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
     hasher.finish()
+}
+
+fn warning_options(config: &DiagnosticsConfig) -> Vec<String> {
+    match &config.slang.warnings {
+        Some(options) if options.is_empty() => vec!["none".to_owned()],
+        Some(options) => options.clone(),
+        None => Vec::new(),
+    }
+}
+
+fn collect_diagnostics(
+    config: &DiagnosticsConfig,
+    source: SlangDiagnosticSource,
+    raw: Vec<SyntaxDiagnostic>,
+    buffer_file_ids: &FxHashMap<u32, FileId>,
+    diagnostics: &mut Vec<CompilationDiagnostic>,
+) {
+    diagnostics.extend(raw.into_iter().filter_map(|diagnostic| {
+        let file_id =
+            diagnostic.buffer_id.and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied())?;
+        let diagnostic = apply_rules(config, source, diagnostic)?;
+        Some(CompilationDiagnostic { file_id, source, diagnostic })
+    }));
+}
+
+fn apply_rules(
+    config: &DiagnosticsConfig,
+    source: SlangDiagnosticSource,
+    mut diagnostic: SyntaxDiagnostic,
+) -> Option<SyntaxDiagnostic> {
+    use syntax::diagnostics::DiagnosticSeverity;
+    for rule in &config.slang.rules {
+        let matches = match &rule.selector {
+            DiagnosticSelector::Code { subsystem, code } => {
+                diagnostic.subsystem == *subsystem && diagnostic.code == *code
+            }
+            DiagnosticSelector::Option(option) => diagnostic.option_name.as_deref() == Some(option),
+            DiagnosticSelector::Group(group) => {
+                diagnostic.groups.iter().any(|candidate| candidate == group)
+            }
+            DiagnosticSelector::Source(rule_source) => source == *rule_source,
+        };
+        if !matches {
+            continue;
+        }
+        diagnostic.severity = match rule.severity {
+            DiagnosticRuleSeverity::Ignore => return None,
+            DiagnosticRuleSeverity::Info => DiagnosticSeverity::Note,
+            DiagnosticRuleSeverity::Warning => DiagnosticSeverity::Warning,
+            DiagnosticRuleSeverity::Error => DiagnosticSeverity::Error,
+            DiagnosticRuleSeverity::Fatal => DiagnosticSeverity::Fatal,
+        };
+    }
+    (diagnostic.severity != DiagnosticSeverity::Ignored).then_some(diagnostic)
 }
 
 #[cfg(test)]
@@ -489,5 +679,144 @@ mod tests {
             instances.iter().any(|inst| inst.path.contains("u0")),
             "profile compile of two files must elaborate the instance: {instances:?}"
         );
+    }
+
+    #[test]
+    fn compile_profile_diagnostics_are_in_process() {
+        let db = db_with_files(&[
+            (CHILD, "child.sv", "module child(input logic a, input logic b);\nendmodule\n"),
+            (TOP, "top.sv", "module top;\n  logic sig;\n  child u(.a(sig));\nendmodule\n"),
+        ]);
+        let mut compiler = Compiler::new();
+        let diagnostics = compiler.diagnostics(
+            &db,
+            [CHILD, TOP],
+            &CompileOptions::for_profile(&db, db.file_compilation_profile(TOP)),
+            db.diagnostics_config().as_ref(),
+        );
+        assert!(
+            diagnostics.iter().any(|diagnostic| {
+                diagnostic.file_id == TOP
+                    && diagnostic.diagnostic.message.contains("input port 'b' has no connection")
+            }),
+            "profile compilation must emit the missing-port diagnostic without a process: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn included_buffer_diagnostics_keep_their_file_identity() {
+        use base_db::project::PreprocessConfig;
+
+        let header = FileId::from_raw(0);
+        let user = FileId::from_raw(1);
+        let root = abs_path("");
+        let mut file_set = FileSet::default();
+        let mut change = Change::new();
+        file_set.insert(header, VfsPath::from(abs_path("defs.svh")));
+        file_set.insert(user, VfsPath::from(abs_path("user.sv")));
+        change.add_changed_file(ChangedFile::create(header, "logic value;\nlogic value;\n"));
+        change.add_changed_file(ChangedFile::create(
+            user,
+            "`include \"defs.svh\"\nmodule top; endmodule\n",
+        ));
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: PreprocessConfig {
+                    include_dirs: vec![root],
+                    ..PreprocessConfig::default()
+                },
+            }],
+        )));
+        let mut db = RootDb::new(None);
+        db.apply_change(change);
+        let mut compiler = Compiler::new();
+        let diagnostics = compiler.diagnostics(
+            &db,
+            [header, user],
+            &CompileOptions::for_profile(&db, db.file_compilation_profile(user)),
+            db.diagnostics_config().as_ref(),
+        );
+        assert!(
+            diagnostics.iter().any(|diagnostic| diagnostic.file_id == header),
+            "include diagnostics must keep the header file id: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn include_overlay_edit_reparses_dependents() {
+        use base_db::project::PreprocessConfig;
+
+        let header = FileId::from_raw(0);
+        let user = FileId::from_raw(1);
+        let root = abs_path("");
+        let mut file_set = FileSet::default();
+        let mut change = Change::new();
+        file_set.insert(header, VfsPath::from(abs_path("defs.svh")));
+        file_set.insert(user, VfsPath::from(abs_path("user.sv")));
+        change.add_changed_file(ChangedFile::create(header, "`define ENABLE 1\n"));
+        change.add_changed_file(ChangedFile::create(
+            user,
+            "`include \"defs.svh\"\nmodule top;\n  logic enable = `ENABLE;\nendmodule\n",
+        ));
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: PreprocessConfig {
+                    include_dirs: vec![root],
+                    ..PreprocessConfig::default()
+                },
+            }],
+        )));
+        let mut db = RootDb::new(None);
+        db.apply_change(change);
+        let options = CompileOptions::for_profile(&db, db.file_compilation_profile(user));
+        let first = Compiler::new().diagnostics(
+            &db,
+            [header, user],
+            &options,
+            db.diagnostics_config().as_ref(),
+        );
+        assert!(
+            first.iter().all(|diagnostic| !diagnostic.diagnostic.message.contains("ENABLE")),
+            "defined macro should compile cleanly: {first:?}"
+        );
+
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile::modify(header, ""));
+        db.apply_change(change);
+        let after = Compiler::new().diagnostics(
+            &db,
+            [header, user],
+            &options,
+            db.diagnostics_config().as_ref(),
+        );
+        assert!(!after.is_empty(), "empty include overlay must affect dependents: {after:?}");
+    }
+
+    #[test]
+    fn source_rule_can_drop_parse_diagnostics() {
+        use base_db::diagnostics_config::{
+            DiagnosticRule, DiagnosticRuleSeverity, DiagnosticSelector, DiagnosticSource,
+        };
+
+        let db = db_with_files(&[(TOP, "top.sv", "module top(;\nendmodule\n")]);
+        let mut config = db.diagnostics_config().as_ref().clone();
+        config.semantic.enabled = false;
+        config.slang.rules.push(DiagnosticRule {
+            selector: DiagnosticSelector::Source(DiagnosticSource::Parse),
+            severity: DiagnosticRuleSeverity::Ignore,
+            force: false,
+        });
+        let mut compiler = Compiler::new();
+        let diagnostics =
+            compiler.diagnostics(&db, [TOP], &CompileOptions::for_file(&db, TOP), &config);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 }

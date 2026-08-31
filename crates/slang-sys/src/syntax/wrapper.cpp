@@ -651,6 +651,27 @@ namespace slang_sys::syntax {
         return session->buffer_id(std::string(path.data(), path.size()));
     }
 
+    std::shared_ptr<SyntaxTree> source_session_parse_library_map(
+        std::shared_ptr<SourceSession> session,
+        rust::Str name,
+        rust::Str path,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    ) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        session->note_parse();
+        return tree::parse_library_map_syntax_tree_from_buffer_with_session(
+            session,
+            name,
+            path,
+            collect_expected_syntax,
+            expected_syntax_offset,
+            has_expected_syntax_offset
+        );
+    }
+
 } // namespace slang_sys::syntax
 
 namespace slang_sys::syntax::tree {

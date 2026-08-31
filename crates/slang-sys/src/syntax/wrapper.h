@@ -99,6 +99,14 @@ namespace slang_sys::syntax {
     );
     uint32_t source_session_parse_count(std::shared_ptr<SourceSession> session);
     uint32_t source_session_buffer_id(std::shared_ptr<SourceSession> session, rust::Str path);
+    std::shared_ptr<SyntaxTree> source_session_parse_library_map(
+        std::shared_ptr<SourceSession> session,
+        rust::Str name,
+        rust::Str path,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    );
 
     // TODO: Maybe we should expose this data structure to the rust side, rather
     // than pretendint it as a SyntaxTree.

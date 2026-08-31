@@ -90,6 +90,22 @@ impl SourceSession {
         ))
     }
 
+    pub fn parse_library_map(
+        &self,
+        name: &str,
+        path: &str,
+        options: &SyntaxTreeOptions,
+    ) -> SyntaxTree {
+        SyntaxTree::from_raw(syntax_ffi::source_session_parse_library_map(
+            self.raw.clone(),
+            name,
+            path,
+            options.collect_expected_syntax,
+            options.expected_syntax_offset.unwrap_or_default(),
+            options.expected_syntax_offset.is_some(),
+        ))
+    }
+
     pub fn parse_count(&self) -> u32 {
         syntax_ffi::source_session_parse_count(self.raw.clone())
     }

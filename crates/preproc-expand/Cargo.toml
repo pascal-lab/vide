@@ -8,7 +8,6 @@ base-db.workspace = true
 preproc.workspace = true
 rustc-hash.workspace = true
 salsa.workspace = true
-serde.workspace = true
 smol_str.workspace = true
 syntax.workspace = true
 toml.workspace = true
@@ -18,5 +17,3 @@ triomphe.workspace = true
 utils.workspace = true
 vfs.workspace = true
 
-[dev-dependencies]
-serde_json.workspace = true

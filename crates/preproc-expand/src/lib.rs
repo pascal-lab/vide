@@ -12,5 +12,4 @@ pub mod db;
 pub mod file;
 pub mod macro_file;
 pub mod preproc;
-pub mod profile_compiler;
 pub mod source_db;

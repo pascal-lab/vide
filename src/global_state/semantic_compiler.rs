@@ -396,7 +396,7 @@ fn collect_semantic_diagnostics(
         touched_files.extend(snapshot.analysis.compilation_profile_file_ids(profile_id)?);
         if !pull_diagnostics {
             profiles.push((
-                snapshot.analysis.compilation_profile_job(profile_id)?,
+                snapshot.analysis.compilation_profile_slang_diagnostics(profile_id)?,
                 open_file_vide_diagnostics(&snapshot, profile_id)?,
             ));
         }
@@ -429,12 +429,9 @@ fn collect_semantic_diagnostics(
     let mut slang_by_file = FxHashMap::<FileId, Vec<ide::diagnostics::Diagnostic>>::default();
     let mut vide_by_file = FxHashMap::<FileId, Vec<ide::diagnostics::Diagnostic>>::default();
     let mut diagnostic_count = 0;
-    for (job, vide_diagnostics) in profiles {
+    for (slang, vide_diagnostics) in profiles {
         cancellation.check()?;
-        let output = crate::compiler_worker::compile(&job, cancellation)?;
-        for diagnostic in
-            ide::diagnostics::materialize_compiler_diagnostics(output.into_diagnostics())
-        {
+        for diagnostic in slang {
             diagnostic_count += 1;
             slang_by_file.entry(diagnostic.file_id).or_default().push(diagnostic);
         }
@@ -458,7 +455,7 @@ fn collect_semantic_diagnostics(
         profile_count,
         root_file_count = touched_files.len(),
         diagnostic_count,
-        "semantic compiler completed isolated profile diagnostics"
+        "semantic compiler completed in-process profile diagnostics"
     );
 
     Ok(SemanticCompilerUpdate {

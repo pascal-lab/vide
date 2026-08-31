@@ -13,7 +13,7 @@ use base_db::{
 };
 use design_graph::DesignGraphDb;
 use hir_def::{def_id::DefId, pathres::ResolutionContext};
-use preproc_expand::{compilation_plan::CompilationPlan, profile_compiler::ProfileCompilationJob};
+use preproc_expand::{compilation_plan::CompilationPlan, db::PreprocDb};
 use triomphe::Arc;
 use utils::{
     cancellation::CancellationToken,
@@ -233,12 +233,25 @@ impl AnalysisSnapshot {
         self.with_db(|db| diagnostics::source_root_diagnostics(db, file_id))
     }
 
-    pub fn compilation_profile_job(
+    pub fn compilation_profile_slang_diagnostics(
         &self,
         profile_id: CompilationProfileId,
-    ) -> Cancellable<ProfileCompilationJob> {
-        self.with_db(|db| {
-            preproc_expand::profile_compiler::build_profile_compilation_job(db.db, profile_id)
+    ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
+        self.with_db(|ctx| {
+            // Fresh session: replace_buffer keeps the old SourceManager path
+            // alive, so include lookup on a reused session can still see the
+            // previous header text. Profile diagnostics match the old worker —
+            // new compilation, current VFS text.
+            let mut compiler = crate::compile::Compiler::new();
+            let plan = <dyn PreprocDb>::compilation_plan_for_profile(ctx.db, Some(profile_id));
+            let options = crate::compile::CompileOptions::for_profile(ctx.db, Some(profile_id));
+            let raw = compiler.diagnostics(
+                ctx.db,
+                plan.all_file_ids().iter().copied(),
+                &options,
+                ctx.db.diagnostics_config().as_ref(),
+            );
+            diagnostics::materialize_compiler_diagnostics(raw)
         })
     }
 

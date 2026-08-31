@@ -172,9 +172,16 @@ pub(crate) fn compilation_profile_diagnostics(
     db: &RootDb,
     profile_id: CompilationProfileId,
 ) -> Vec<Diagnostic> {
-    let job = preproc_expand::profile_compiler::build_profile_compilation_job(db, profile_id);
-    let output = preproc_expand::profile_compiler::run_profile_compilation(job);
-    materialize_compilation_profile_diagnostics(db, profile_id, output.into_diagnostics())
+    let plan =
+        <dyn preproc_expand::db::PreprocDb>::compilation_plan_for_profile(db, Some(profile_id));
+    let mut compiler = crate::compile::Compiler::new();
+    let compiler_diagnostics = compiler.diagnostics(
+        db,
+        plan.all_file_ids().iter().copied(),
+        &crate::compile::CompileOptions::for_profile(db, Some(profile_id)),
+        db.diagnostics_config().as_ref(),
+    );
+    materialize_compilation_profile_diagnostics(db, profile_id, compiler_diagnostics)
 }
 
 #[cfg(test)]

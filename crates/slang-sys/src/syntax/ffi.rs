@@ -201,6 +201,14 @@ mod slang_ffi {
         ) -> SharedPtr<SyntaxTree>;
         fn source_session_parse_count(session: SharedPtr<SourceSession>) -> u32;
         fn source_session_buffer_id(session: SharedPtr<SourceSession>, path: &str) -> u32;
+        fn source_session_parse_library_map(
+            session: SharedPtr<SourceSession>,
+            name: &str,
+            path: &str,
+            collect_expected_syntax: bool,
+            expected_syntax_offset: usize,
+            has_expected_syntax_offset: bool,
+        ) -> SharedPtr<SyntaxTree>;
     }
 
     #[namespace = "slang_sys::syntax::tree"]
