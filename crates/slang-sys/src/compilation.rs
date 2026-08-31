@@ -719,6 +719,11 @@ endmodule
             .expect("C1 must see the class member through the import");
         assert!(info.type_name.contains("string"), "{info:?}");
         assert_eq!(info.owner_class, "leaf", "{info:?}");
+        assert!(first.parse_diagnostics_with_options(&[]).is_empty());
+        let ty = first
+            .lookup_type("user.sv", offset, offset + "m_leaf_name".len())
+            .expect("C1 type lookup must work on the same trees");
+        assert!(ty.contains("string"), "{ty}");
         drop(first);
 
         let replaced = session.replace_buffer("user.sv", user_edit);
@@ -733,6 +738,14 @@ endmodule
             .lookup_symbol("user.sv", user_edit.find("m_leaf_name").expect("use"))
             .expect("C2 must see the member after reusing the pkg tree");
         assert!(info.type_name.contains("string"), "{info:?}");
+        let ty = second
+            .lookup_type(
+                "user.sv",
+                user_edit.find("m_leaf_name").expect("use"),
+                user_edit.find("m_leaf_name").expect("use") + "m_leaf_name".len(),
+            )
+            .expect("C2 type lookup must work after reusing the pkg tree");
+        assert!(ty.contains("string"), "{ty}");
         assert!(second.parse_diagnostics_with_options(&[]).is_empty());
         let semantic = second.semantic_diagnostics_with_options(&[]);
         assert!(
