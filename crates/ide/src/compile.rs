@@ -29,7 +29,10 @@ use preproc_expand::{
 use rustc_hash::{FxHashMap, FxHashSet};
 use slang_sys::compilation::{Compilation, HierInstance, SourceSession};
 use syntax::{SyntaxTreeOptions, diagnostics::SyntaxDiagnostic};
-use utils::path_identity::PathIdentityIndex;
+use utils::{
+    path_identity::PathIdentityIndex,
+    paths::{AbsPathBuf, Utf8PathBuf},
+};
 use vfs::FileId;
 
 use crate::db::root_db::RootDb;
@@ -203,6 +206,11 @@ impl DerefMut for CompilationArtifact {
 
 /// Holds a [`SourceSession`] and the trees parsed on it. `compile` runs on
 /// the calling thread.
+///
+/// `trees`, `hashes`, and `assigned` grow with paths this session has seen.
+/// Replaced buffers stay because older [`Compilation`] values still name
+/// those trees. The bound is the session lifetime on
+/// [`crate::analysis_host::AnalysisHost`], not per compile.
 pub struct Compiler {
     session: SourceSession,
     trees: FxHashMap<FileId, syntax::SyntaxTree>,
@@ -313,12 +321,8 @@ impl Compiler {
                 compilation.add_syntax_tree(tree);
             }
         }
-        CompilationArtifact {
-            compilation,
-            files,
-            path_files: (*<dyn PreprocDb>::path_file_ids(db)).clone(),
-            fingerprint: parse_fingerprint,
-        }
+        let (files, path_files) = covered_buffers(db, &files, extra);
+        CompilationArtifact { compilation, files, path_files, fingerprint: parse_fingerprint }
     }
 
     /// Hierarchical instances on a compilation of `files`.
@@ -469,6 +473,60 @@ impl Default for Compiler {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn covered_buffers(
+    db: &RootDb,
+    files: &[FileId],
+    extra: &[compilation_plan::AssignedIncludeBuffer],
+) -> (Vec<FileId>, PathIdentityIndex<FileId>) {
+    let mut seen = FxHashSet::default();
+    let mut covered = Vec::new();
+    let mut path_files = PathIdentityIndex::default();
+    for &file in files {
+        absorb_covered(db, file, &mut seen, &mut covered, &mut path_files);
+        if db.file_kind(file).is_semantic_compilation_unit() {
+            for &included in <dyn PreprocDb>::static_include_closure(db, file).files() {
+                absorb_covered(db, included, &mut seen, &mut covered, &mut path_files);
+            }
+            for buffer in compilation_plan::assigned_include_buffers_for_file(db, file) {
+                absorb_assigned(&buffer, &mut seen, &mut covered, &mut path_files);
+            }
+        }
+    }
+    for buffer in extra {
+        absorb_assigned(buffer, &mut seen, &mut covered, &mut path_files);
+    }
+    covered.sort_unstable_by_key(|file| file.index());
+    (covered, path_files)
+}
+
+fn absorb_covered(
+    db: &RootDb,
+    file: FileId,
+    seen: &mut FxHashSet<FileId>,
+    covered: &mut Vec<FileId>,
+    path_files: &mut PathIdentityIndex<FileId>,
+) {
+    if seen.insert(file) {
+        covered.push(file);
+    }
+    let path = compilation_plan::source_buffer_path(db, file);
+    path_files.insert_path(path.as_path(), file);
+}
+
+fn absorb_assigned(
+    buffer: &compilation_plan::AssignedIncludeBuffer,
+    seen: &mut FxHashSet<FileId>,
+    covered: &mut Vec<FileId>,
+    path_files: &mut PathIdentityIndex<FileId>,
+) {
+    if seen.insert(buffer.file_id) {
+        covered.push(buffer.file_id);
+    }
+    let path = AbsPathBuf::try_from(Utf8PathBuf::from(buffer.path.as_str()))
+        .unwrap_or_else(|_| panic!("compile assigned a non-absolute buffer path: {}", buffer.path));
+    path_files.insert_path(path.as_path(), buffer.file_id);
 }
 
 /// CUs in `files` that are not in another file's include graph.
@@ -905,11 +963,7 @@ mod tests {
             (other, "other.sv", "module other;\nendmodule\n"),
         ]);
         let mut compiler = Compiler::new();
-        let artifact = compiler.compile(
-            &db,
-            [USER, PKG],
-            &CompileOptions::for_file(&db, USER),
-        );
+        let artifact = compiler.compile(&db, [USER, PKG], &CompileOptions::for_file(&db, USER));
         let leaf_path = compilation_plan::source_buffer_path(&db, LEAF).to_string();
         let other_path = compilation_plan::source_buffer_path(&db, other).to_string();
         let _fingerprint = artifact.fingerprint();
