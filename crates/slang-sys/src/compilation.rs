@@ -785,4 +785,55 @@ endmodule
             .expect("C1 must still answer from the old tree");
         assert_eq!(still.owner_class, "leaf", "{still:?}");
     }
+
+    fn panic_text(payload: Box<dyn std::any::Any + Send>) -> String {
+        payload
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| payload.downcast_ref::<&str>().map(|text| (*text).to_owned()))
+            .unwrap_or_else(|| "non-string panic".to_owned())
+    }
+
+    fn mapping_failure<T: std::fmt::Debug>(result: std::thread::Result<T>, quiet: &str) {
+        match result {
+            Ok(value) => panic!("{quiet}: {value:?}"),
+            Err(payload) => {
+                let text = panic_text(payload);
+                assert!(
+                    text.contains("not in this compilation"),
+                    "mapping failure must name the missing path, got: {text}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn path_mapping_failure_is_not_a_silent_empty_result() {
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(
+            "module top; logic x; endmodule\n",
+            "top",
+            "top.sv",
+            &SyntaxTreeOptions::default(),
+        );
+
+        mapping_failure(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                compilation.lookup_symbol("other.sv", 0)
+            })),
+            "lookup_symbol of a path this compilation does not own must not look like a miss",
+        );
+        mapping_failure(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                compilation.list_members("other.sv", 0)
+            })),
+            "list_members of a path this compilation does not own must not return an empty scope",
+        );
+        mapping_failure(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                compilation.lookup_type("other.sv", 0, 1)
+            })),
+            "lookup_type of a path this compilation does not own must not look like a miss",
+        );
+    }
 }
