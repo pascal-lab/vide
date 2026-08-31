@@ -62,20 +62,27 @@ fn render_source_declaration_target(
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let (range, tokens) = target.into_parts();
 
-    let origins = tokens
+    let navs = tokens
         .into_iter()
-        .flat_map(|token| {
-            DefinitionClass::resolve(db, hir_file_id, token).into_candidates().into_iter().map(
-                |class| match class {
+        .filter_map(|token| {
+            if crate::definitions::is_compilation_name(token) {
+                return crate::goto_definition::compilation_nav(db, hir_file_id, token)
+                    .or_else(|| crate::goto_definition::this_file_hir_nav(db, hir_file_id, token));
+            }
+            let origins = DefinitionClass::resolve(db, hir_file_id, token)
+                .into_candidates()
+                .into_iter()
+                .map(|class| match class {
                     DefinitionClass::Definition(definition) => definition.declaration_origin(db.db),
                     DefinitionClass::PortConnShorthand { port, .. } => {
                         port.declaration_origin(db.db)
                     }
-                },
-            )
+                });
+            let navs = origins.unique().filter_map(|def| def.to_nav(db)).collect_vec();
+            (!navs.is_empty()).then_some(navs)
         })
+        .flatten()
+        .unique()
         .collect_vec();
-
-    let navs = origins.into_iter().unique().filter_map(|def| def.to_nav(db)).collect_vec();
     (!navs.is_empty()).then_some(RangeInfo::new(range, navs))
 }

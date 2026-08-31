@@ -1,6 +1,7 @@
 use hir_def::{
     db::HirDefDb,
     def_id::DefId,
+    has_source::HasSource,
     owner::OwnerId,
     symbol::{DefKind, DefOrigin, NameContext, Resolution},
 };
@@ -14,6 +15,7 @@ use syntax::{
     match_ast,
     token::TokenKindExt,
 };
+use vfs::FileId;
 
 use crate::{
     analysis::AnalysisContext,
@@ -237,6 +239,104 @@ pub(crate) fn slang_colon_colon(
     let resolution =
         DefinitionClass::resolve_in(db.db, db.resolution(), origin_file.into(), token, None);
     (!resolution.is_unresolved()).then_some(resolution)
+}
+
+/// Names the compilation answers: types, `::`, `.` members, instantiation
+/// types, named ports/params. Not this-file lexical (local decls, generate
+/// / block identifiers, the left of `u0.leaf_wire`).
+pub(crate) fn is_compilation_name(tp: SyntaxTokenWithParent<'_>) -> bool {
+    if colon_colon_query(tp).is_some() {
+        return true;
+    }
+    let SyntaxTokenWithParent { parent, tok } = tp;
+    if SyntaxAncestors::start_from(parent)
+        .find_map(ast::MemberAccessExpression::cast)
+        .is_some_and(|access| access.name() == Some(tok))
+    {
+        return true;
+    }
+    if let Some(scoped) = SyntaxAncestors::start_from(parent).find_map(ast::ScopedName::cast)
+        && scoped_uses_dot(scoped)
+        && scoped_right_token(scoped) == Some(tok)
+    {
+        return true;
+    }
+    if SyntaxAncestors::start_from(parent)
+        .find_map(ast::HierarchyInstantiation::cast)
+        .is_some_and(|instantiation| instantiation.type_() == Some(tok))
+    {
+        return true;
+    }
+    if SyntaxAncestors::start_from(parent)
+        .find_map(ast::CheckerInstantiation::cast)
+        .is_some_and(|instantiation| rightmost_name_token(instantiation.type_()) == Some(tok))
+    {
+        return true;
+    }
+    if SyntaxAncestors::start_from(parent)
+        .find_map(ast::PrimitiveInstantiation::cast)
+        .is_some_and(|instantiation| instantiation.type_() == Some(tok))
+    {
+        return true;
+    }
+    if SyntaxAncestors::start_from(parent).any(|node| ast::NamedType::cast(node).is_some()) {
+        return true;
+    }
+    if SyntaxAncestors::start_from(parent)
+        .find_map(ast::NamedPortConnection::cast)
+        .is_some_and(|connection| connection.name() == Some(tok))
+    {
+        return true;
+    }
+    if SyntaxAncestors::start_from(parent)
+        .find_map(ast::NamedParamAssignment::cast)
+        .is_some_and(|assignment| assignment.name() == Some(tok))
+    {
+        return true;
+    }
+    false
+}
+
+/// This-file lexical, or a paid-parse generated name (`HirFileId::Macro`).
+/// Catalog identity in another file is not local.
+pub(crate) fn hir_origin_is_local_or_generated(
+    db: &dyn HirDefDb,
+    current: FileId,
+    origin: DefOrigin,
+) -> bool {
+    match origin.source(db).map(|source| source.file_id) {
+        Some(HirFileId::Macro(_)) => true,
+        Some(HirFileId::File(file)) => file == current,
+        None => false,
+    }
+}
+
+/// Dotted member / hierarchical right-hand name: `u0.leaf_wire`, `inst.m`.
+pub(crate) fn dotted_member_query(tp: SyntaxTokenWithParent<'_>) -> Option<(String, String)> {
+    let SyntaxTokenWithParent { parent, tok } = tp;
+    if let Some(access) =
+        SyntaxAncestors::start_from(parent).find_map(ast::MemberAccessExpression::cast)
+        && access.name() == Some(tok)
+    {
+        let left = identifier_expr_name(access.left())?;
+        return Some((left, tok.raw_text().to_string()));
+    }
+    let scoped = SyntaxAncestors::start_from(parent).find_map(ast::ScopedName::cast)?;
+    if !scoped_uses_dot(scoped) {
+        return None;
+    }
+    let right = scoped_right_token(scoped)?;
+    if right != tok {
+        return None;
+    }
+    let left = scoped_left_token(scoped)?;
+    Some((left.tok.raw_text().to_string(), right.raw_text().to_string()))
+}
+
+fn identifier_expr_name(expr: ast::Expression<'_>) -> Option<String> {
+    ast::IdentifierName::cast(expr.syntax())
+        .and_then(|name| name.identifier())
+        .map(|tok| tok.raw_text().to_string())
 }
 
 pub(crate) fn colon_colon_query(tp: SyntaxTokenWithParent<'_>) -> Option<(String, String)> {
@@ -490,9 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn definition_resolves_hierarchical_path_leaf() {
-        // This-file instance descent. A top-level module as a hierarchy root
-        // (`top.u0.leaf_wire` from outside `top`) is the compilation.
+    fn goto_hierarchical_path_leaf_is_the_compilation() {
         let text = r#"
 module leaf;
   wire leaf_wire;
@@ -500,34 +598,24 @@ endmodule
 
 module top;
   leaf u0();
-  initial begin
-    u0.leaf_/*caret*/wire;
-  end
-endmodule
+  wire sink;
+  initial sink = u0.leaf_/*caret*/wire;
 "#;
         let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
+        let def_at = TextSize::from(text.find("leaf_wire;").unwrap() as u32);
         let text = text.replace("/*caret*/", "");
         let (host, file_id) = host_with_file(&text);
-        let db = host.ctx();
-        let sema = Semantics::<RootDb>::new_with_context(db.db, db.resolution());
-        let parsed_file = sema.parse_file(file_id);
-        let file = parsed_file.compilation_unit().unwrap();
-        let token = file
-            .syntax()
-            .token_at_offset(offset)
-            .pick_best_token(crate::token::navigation_precedence)
-            .unwrap();
-
-        let DefinitionClass::Definition(def) =
-            DefinitionClass::resolve(&db, file_id.into(), token).unique().unwrap()
-        else {
-            panic!("expected plain definition for hierarchical leaf");
-        };
-
-        let origins = def.origins(db.db);
+        let nav = host
+            .make_analysis()
+            .goto_definition(crate::FilePosition { file_id, offset })
+            .unwrap()
+            .expect("u0.leaf_wire is lookup on the compilation");
+        assert_eq!(nav.info.len(), 1, "compilation binds; Ambiguous is not a jump: {nav:?}");
         assert!(
-            origins.iter().any(|origin| origin.kind(db.db) == DefKind::Net),
-            "hierarchical leaf should resolve to child net, got {origins:?}"
+            nav.info
+                .iter()
+                .any(|target| target.focus_range.map(|range| range.start()) == Some(def_at)),
+            "hierarchical member must land on leaf_wire: {nav:?}"
         );
     }
 

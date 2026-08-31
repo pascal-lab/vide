@@ -183,8 +183,8 @@ impl Compiler {
     }
 
     /// Parse dirty/missing compilation-unit trees on this session and return
-    /// a new [`Compilation`]. Include-only files are assigned as buffers, not
-    /// parsed as roots.
+    /// a new [`Compilation`]. Files in another root's include graph are
+    /// assigned as buffers, not parsed as roots — including `.sv` fragments.
     pub fn compile(
         &mut self,
         db: &RootDb,
@@ -234,10 +234,8 @@ impl Compiler {
             ..SyntaxTreeOptions::default()
         };
 
-        for &file in &files {
-            if !db.file_kind(file).is_semantic_compilation_unit() {
-                continue;
-            }
+        let roots = parse_roots(db, &files);
+        for &file in &roots {
             if self.cu_is_fresh(db, file, &current_hashes, &files, extra) {
                 continue;
             }
@@ -259,10 +257,7 @@ impl Compiler {
         } else {
             Compilation::on_with_top_modules(&self.session, &options.top_modules)
         };
-        for &file in &files {
-            if !db.file_kind(file).is_semantic_compilation_unit() {
-                continue;
-            }
+        for &file in &roots {
             if let Some(tree) = self.trees.get(&file) {
                 compilation.add_syntax_tree(tree);
             }
@@ -416,6 +411,48 @@ impl Default for Compiler {
     }
 }
 
+/// CUs in `files` that are not in another file's include graph.
+///
+/// Same rule as [`compilation_plan::CompilationPlan::include_only`]: an
+/// included `.sv` is a buffer. Files unreachable from the remaining roots
+/// (include cycles) stay roots so they are not dropped.
+fn parse_roots(db: &RootDb, files: &[FileId]) -> Vec<FileId> {
+    let cus: Vec<FileId> = files
+        .iter()
+        .copied()
+        .filter(|&file| db.file_kind(file).is_semantic_compilation_unit())
+        .collect();
+    let mut included = FxHashSet::default();
+    for &file in &cus {
+        for &fragment in <dyn PreprocDb>::static_include_closure(db, file).files() {
+            if fragment != file {
+                included.insert(fragment);
+            }
+        }
+    }
+    let mut roots: Vec<FileId> =
+        cus.iter().copied().filter(|file| !included.contains(file)).collect();
+    if roots.is_empty() {
+        return cus;
+    }
+    let mut reachable = FxHashSet::default();
+    let mut pending = roots.clone();
+    while let Some(file) = pending.pop() {
+        for &fragment in <dyn PreprocDb>::static_include_closure(db, file).files() {
+            if reachable.insert(fragment) {
+                pending.push(fragment);
+            }
+        }
+    }
+    for file in cus {
+        if !roots.contains(&file) && !reachable.contains(&file) {
+            roots.push(file);
+        }
+    }
+    roots.sort_unstable_by_key(|file| file.index());
+    roots
+}
+
 fn hash_text(text: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
@@ -534,6 +571,20 @@ mod tests {
         ])
     }
 
+    /// Same shape as UVM/riscv-dv: the included class file is `.sv`, so
+    /// `file_kind` calls it a compilation unit. It is still a fragment.
+    fn include_into_package_sv_db() -> RootDb {
+        db_with_files(&[
+            (
+                USER,
+                "user.sv",
+                "module top;\n  import pkg::*;\n  leaf inst;\n  initial inst.m_leaf_name = \"x\";\nendmodule\n",
+            ),
+            (PKG, "pkg.sv", "package pkg;\n  `include \"leaf.sv\"\nendpackage\n"),
+            (LEAF, "leaf.sv", "class leaf;\n  string m_leaf_name;\nendclass\n"),
+        ])
+    }
+
     #[test]
     fn file_closure_includes_the_class_file_direct_names_do_not() {
         let db = include_into_package_db();
@@ -596,6 +647,75 @@ mod tests {
         );
     }
 
+    #[test]
+    fn compile_does_not_parse_an_included_sv_as_a_cu_root() {
+        let db = include_into_package_sv_db();
+        let mut compiler = Compiler::new();
+        let closure = file_closure(&db, USER);
+        assert!(closure.contains(LEAF), "included .sv must still be in the closure");
+        let _ = compiler.compile(
+            &db,
+            closure.files().iter().copied(),
+            &CompileOptions::for_file(&db, USER),
+        );
+        assert_eq!(
+            compiler.session().parse_count(),
+            2,
+            "pkg.sv and user.sv; leaf.sv is a buffer even though file_kind is SystemVerilog"
+        );
+
+        let mut profile = Compiler::new();
+        let _ = profile.compile(
+            &db,
+            [USER, PKG, LEAF],
+            &CompileOptions::for_profile(&db, db.file_compilation_profile(USER)),
+        );
+        assert_eq!(
+            profile.session().parse_count(),
+            2,
+            "profile of the same three files must not parse leaf.sv as a second root"
+        );
+
+        let before = compiler.session().parse_count();
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile::modify(
+            LEAF,
+            "class leaf;\n  string m_leaf_name;\n  string extra;\nendclass\n",
+        ));
+        let mut db = db;
+        db.apply_change(change);
+        let closure = file_closure(&db, USER);
+        let _ = compiler.compile(
+            &db,
+            closure.files().iter().copied(),
+            &CompileOptions::for_file(&db, USER),
+        );
+        assert_eq!(
+            compiler.session().parse_count().saturating_sub(before),
+            1,
+            "leaf.sv edit must reparse pkg.sv (the root), not leaf.sv as a CU"
+        );
+    }
+
+    #[test]
+    fn compile_file_closure_answers_the_included_sv_class_member() {
+        let db = include_into_package_sv_db();
+        let mut compiler = Compiler::new();
+        let closure = file_closure(&db, USER);
+        let user = "module top;\n  import pkg::*;\n  leaf inst;\n  initial inst.m_leaf_name = \"x\";\nendmodule\n";
+        let mut compilation = compiler.compile(
+            &db,
+            closure.files().iter().copied(),
+            &CompileOptions::for_file(&db, USER),
+        );
+        let path = compilation_plan::source_buffer_path(&db, USER).to_string();
+        let info = compilation
+            .lookup_symbol(&path, user.find("m_leaf_name").expect("use"))
+            .expect("included .sv class member must bind; a second CU root duplicates the class");
+        assert!(info.type_name.contains("string"), "{info:?}");
+        assert_eq!(info.owner_class, "leaf", "{info:?}");
+    }
+
     fn include_into_package_host() -> (crate::analysis_host::AnalysisHost, FileId, String) {
         let user =
             "module top;\n  pkg::leaf inst;\n  initial inst.m_leaf_name = \"x\";\nendmodule\n";
@@ -650,6 +770,22 @@ mod tests {
         assert!(
             nav.info.iter().any(|target| target.file_id == LEAF),
             "pkg::leaf must jump into the included class file, not catalog files[0]: {nav:?}"
+        );
+        assert_eq!(nav.info.len(), 1, "compilation binds; Ambiguous is not a jump: {nav:?}");
+    }
+
+    #[test]
+    fn workerless_dot_member_goto_on_include_into_package() {
+        let (host, user, text) = include_into_package_host();
+        let offset = utils::line_index::TextSize::from(text.find("m_leaf_name").unwrap() as u32);
+        let nav = host
+            .make_analysis()
+            .goto_definition(crate::FilePosition { file_id: user, offset })
+            .unwrap()
+            .expect("inst.m_leaf_name");
+        assert!(
+            nav.info.iter().any(|target| target.file_id == LEAF),
+            "dot member must jump into the included class file: {nav:?}"
         );
         assert_eq!(nav.info.len(), 1, "compilation binds; Ambiguous is not a jump: {nav:?}");
     }

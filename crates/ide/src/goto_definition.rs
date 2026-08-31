@@ -91,22 +91,39 @@ fn nav_targets_for_token(
     token: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
     handle_ctrl_flow_kw(db.db, hir_file_id, token).or_else(|| {
-        // This-file lexical (local decls, generate/block names) is HIR.
-        // Types, `::`, `.` members, and other-file names are the compilation.
-        let navs = DefinitionClass::resolve(db, hir_file_id, token)
-            .into_candidates()
-            .into_iter()
-            .flat_map(|class| class.origins(db.db))
-            .unique()
-            .filter_map(|def| def.to_nav(db.db))
-            .map(compact_design_unit_target)
-            .collect_vec();
-        if !navs.is_empty() {
-            return Some(navs);
+        if crate::definitions::is_compilation_name(token) {
+            return compilation_nav(db, hir_file_id, token)
+                .or_else(|| this_file_hir_nav(db, hir_file_id, token));
         }
-        slang_scoped_nav(db, hir_file_id, token)
-            .or_else(|| slang_symbol_nav(db, hir_file_id, token))
+        this_file_hir_nav(db, hir_file_id, token)
+            .or_else(|| compilation_nav(db, hir_file_id, token))
     })
+}
+
+pub(crate) fn this_file_hir_nav(
+    db: &AnalysisContext<'_>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+) -> Option<Vec<NavTarget>> {
+    let file = hir_file_id.as_file()?;
+    let navs = DefinitionClass::resolve(db, hir_file_id, token)
+        .into_candidates()
+        .into_iter()
+        .flat_map(|class| class.origins(db.db))
+        .unique()
+        .filter(|origin| crate::definitions::hir_origin_is_local_or_generated(db.db, file, *origin))
+        .filter_map(|def| def.to_nav(db.db))
+        .map(compact_design_unit_target)
+        .collect_vec();
+    (!navs.is_empty()).then_some(navs)
+}
+
+pub(crate) fn compilation_nav(
+    db: &AnalysisContext<'_>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+) -> Option<Vec<NavTarget>> {
+    slang_scoped_nav(db, hir_file_id, token).or_else(|| slang_symbol_nav(db, hir_file_id, token))
 }
 
 fn slang_symbol_nav(
@@ -126,7 +143,8 @@ fn slang_scoped_nav(
     token: SyntaxTokenWithParent<'_>,
 ) -> Option<Vec<NavTarget>> {
     let file = hir_file_id.as_file()?;
-    let (left, right) = crate::definitions::colon_colon_query(token)?;
+    let (left, right) = crate::definitions::colon_colon_query(token)
+        .or_else(|| crate::definitions::dotted_member_query(token))?;
     let info = crate::slang_class::lookup_scoped_at(db, file, &left, &right)?;
     nav_from_symbol_info(db, info)
 }

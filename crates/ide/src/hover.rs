@@ -199,14 +199,44 @@ fn handle_definition(
     file_id: HirFileId,
     tp: SyntaxTokenWithParent,
 ) -> Option<Markup> {
-    let token_text = token_text(db.db, file_id, &tp);
-    let def = DefinitionClass::resolve(db, file_id, tp);
-    if matches!(def, hir_def::symbol::Resolution::Unresolved) {
-        return slang_type_line(db, file_id, tp).map(|ty| {
+    if crate::definitions::is_compilation_name(tp) {
+        if let Some(ty) = slang_type_line(db, file_id, tp) {
+            let mut res = Markup::new();
+            res.push_with_code_fence(&ty);
+            return Some(res);
+        }
+        return hir_definition_markup(db, file_id, tp, true);
+    }
+    hir_definition_markup(db, file_id, tp, false).or_else(|| {
+        slang_type_line(db, file_id, tp).map(|ty| {
             let mut res = Markup::new();
             res.push_with_code_fence(&ty);
             res
+        })
+    })
+}
+
+fn hir_definition_markup(
+    db: &AnalysisContext<'_>,
+    file_id: HirFileId,
+    tp: SyntaxTokenWithParent,
+    this_file_only: bool,
+) -> Option<Markup> {
+    let token_text = token_text(db.db, file_id, &tp);
+    let def = DefinitionClass::resolve(db, file_id, tp);
+    if matches!(def, hir_def::symbol::Resolution::Unresolved) {
+        return None;
+    }
+    if this_file_only {
+        let file = file_id.as_file()?;
+        let this_file = def.candidates().iter().all(|class| {
+            class.clone().origins(db.db).into_iter().all(|origin| {
+                crate::definitions::hir_origin_is_local_or_generated(db.db, file, origin)
+            })
         });
+        if !this_file {
+            return None;
+        }
     }
     let sema = db.semantics();
     let anchor_file_id = file_id.expect_file();
