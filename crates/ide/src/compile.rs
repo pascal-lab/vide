@@ -73,6 +73,52 @@ pub fn file_closure(db: &RootDb, file: FileId) -> FileClosure {
     named_files(db, file, true)
 }
 
+/// The CU whose file-closure Compilation covers `file` for open-file parse.
+///
+/// Include-only files are not compiled as roots; they stay assigned buffers
+/// of an including CU. When no including CU exists, `file` itself is returned.
+pub fn covering_root(db: &RootDb, file: FileId) -> FileId {
+    if db.file_kind(file).is_semantic_compilation_unit() {
+        return file;
+    }
+    including_root(db, file).unwrap_or(file)
+}
+
+fn including_root(db: &RootDb, file: FileId) -> Option<FileId> {
+    if let Some(parent) = including_root_in(&plan_for_file(db, file), file) {
+        return Some(parent);
+    }
+    for profile in db.project_config().profile_ids() {
+        if let Some(parent) = including_root_in(
+            &<dyn PreprocDb>::compilation_plan_for_profile(db, Some(profile)),
+            file,
+        ) {
+            return Some(parent);
+        }
+    }
+    None
+}
+
+fn plan_for_file(db: &RootDb, file: FileId) -> triomphe::Arc<compilation_plan::CompilationPlan> {
+    match db.file_compilation_profile(file) {
+        Some(profile) => <dyn PreprocDb>::compilation_plan_for_profile(db, Some(profile)),
+        None => <dyn PreprocDb>::compilation_plan_for_root(db, db.source_root_id(file)),
+    }
+}
+
+fn including_root_in(plan: &compilation_plan::CompilationPlan, file: FileId) -> Option<FileId> {
+    let mut found: Option<FileId> = None;
+    for (from, tos) in &plan.include_dependencies {
+        if tos.contains(&file) {
+            found = Some(match found {
+                Some(existing) if existing.index() <= from.index() => existing,
+                _ => *from,
+            });
+        }
+    }
+    found
+}
+
 fn named_files(db: &RootDb, start: FileId, walk_includes: bool) -> FileClosure {
     let mut seen = FxHashSet::default();
     let mut files = Vec::new();
@@ -330,6 +376,39 @@ impl Compiler {
         config: &DiagnosticsConfig,
     ) -> Vec<CompilationDiagnostic> {
         Self::new().diagnostics(db, files, options, config)
+    }
+
+    /// Parse diagnostics from a file-closure compilation.
+    ///
+    /// Does not run the profile semantic pass and does not add profile-wide
+    /// extra buffers. Include files stay assigned buffers of the covering CUs.
+    pub fn parse_diagnostics(
+        &mut self,
+        db: &RootDb,
+        files: impl IntoIterator<Item = FileId>,
+        options: &CompileOptions,
+        config: &DiagnosticsConfig,
+    ) -> Vec<CompilationDiagnostic> {
+        let files: Vec<FileId> = {
+            let mut files: Vec<_> = files.into_iter().collect();
+            files.sort_unstable_by_key(|file| file.index());
+            files.dedup();
+            files
+        };
+        let artifact = self.compile_inner(db, files.iter().copied(), options, &[]);
+        let buffer_file_ids = self.buffer_file_ids(&artifact);
+        let warning_options = warning_options(config);
+        let mut diagnostics = Vec::new();
+        if config.enabled && config.parse.enabled {
+            collect_diagnostics(
+                config,
+                SlangDiagnosticSource::Parse,
+                artifact.parse_diagnostics_with_options(&warning_options),
+                &buffer_file_ids,
+                &mut diagnostics,
+            );
+        }
+        diagnostics
     }
 
     fn compile_inner(

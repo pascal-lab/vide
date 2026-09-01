@@ -158,12 +158,39 @@ impl VideDiagnosticDescriptor {
 }
 
 pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    parse_diagnostics_with(db, file_id, &mut crate::compile::Compiler::new())
+}
+
+pub(crate) fn parse_diagnostics_on(
+    ctx: &crate::analysis::AnalysisContext<'_>,
+    file_id: FileId,
+) -> Vec<Diagnostic> {
+    match ctx.compiler {
+        Some(compiler) => parse_diagnostics_with(ctx.db, file_id, &mut compiler.lock()),
+        None => parse_diagnostics(ctx.db, file_id),
+    }
+}
+
+fn parse_diagnostics_with(
+    db: &RootDb,
+    file_id: FileId,
+    compiler: &mut crate::compile::Compiler,
+) -> Vec<Diagnostic> {
     if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::diagnostics(db, file_id);
     }
-    db.parse_diagnostics(file_id)
-        .iter()
-        .filter_map(|diag| slang_diagnostic(file_id, SlangDiagnosticSource::Parse, diag))
+    let config = db.diagnostics_config();
+    if !config.enabled || !config.parse.enabled {
+        return Vec::new();
+    }
+    let start = crate::compile::covering_root(db, file_id);
+    let covering = crate::compile::file_closure(db, start);
+    let options = crate::compile::CompileOptions::for_file(db, start);
+    let compiler_diagnostics =
+        compiler.parse_diagnostics(db, covering.files().iter().copied(), &options, config.as_ref());
+    materialize_compiler_diagnostics(compiler_diagnostics)
+        .into_iter()
+        .filter(|diagnostic| diagnostic.file_id == file_id)
         .collect()
 }
 
@@ -288,7 +315,12 @@ pub(crate) fn analysis_diagnostics(
         return Vec::new();
     }
 
-    syntax_diagnostics(db, db.resolution().as_ref(), file_id)
+    if db.file_kind(file_id).is_project_manifest() {
+        return crate::manifest::diagnostics(db, file_id);
+    }
+    let mut diagnostics = parse_diagnostics_on(db, file_id);
+    diagnostics.extend(vide_diagnostics(db, db.resolution().as_ref(), file_id));
+    diagnostics
 }
 
 pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
