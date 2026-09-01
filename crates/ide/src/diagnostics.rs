@@ -675,7 +675,7 @@ mod tests {
         DIAGNOSTIC_LOWERING_INVALID_SYNTAX, DiagnosticSource, DiagnosticTag,
         INACTIVE_PREPROCESSOR_BRANCH, LOWERING_INVALID_SYNTAX, LOWERING_UNSUPPORTED_SYNTAX,
         SlangDiagnosticSource, SyntaxDiagnostic, compilation_profile_diagnostics, diagnostics,
-        parse_diagnostics, slang_diagnostic, to_text_range,
+        materialize_compiler_diagnostics, parse_diagnostics, to_text_range,
     };
     use crate::db::root_db::RootDb;
 
@@ -1519,7 +1519,7 @@ endmodule
     }
 
     #[test]
-    fn unlocated_slang_diagnostics_are_not_published_at_file_start() {
+    fn unlocated_slang_diagnostics_remain_visible() {
         let diagnostic = SyntaxDiagnostic {
             code: 1,
             subsystem: 5,
@@ -1541,9 +1541,24 @@ endmodule
         };
 
         assert!(to_text_range(&diagnostic).is_none());
+        let published = materialize_compiler_diagnostics(vec![
+            preproc_expand::db::CompilationDiagnostic {
+                file_id: FileId::from_raw(0),
+                source: SlangDiagnosticSource::Parse,
+                diagnostic,
+            },
+        ]);
+        assert_eq!(
+            published.len(),
+            1,
+            "mapping failure must stay visible, not be dropped: {published:?}"
+        );
+        assert_eq!(published[0].message, "global diagnostic");
+        assert_eq!(published[0].file_id, FileId::from_raw(0));
         assert!(
-            slang_diagnostic(FileId::from_raw(0), SlangDiagnosticSource::Parse, &diagnostic)
-                .is_none()
+            published[0].range.is_empty(),
+            "unlocated diagnostics are file-level, not a token squiggle: {:?}",
+            published[0].range
         );
     }
 }
