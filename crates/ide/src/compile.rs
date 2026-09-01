@@ -169,7 +169,11 @@ impl CompileOptions {
 pub enum QueryStatus<T> {
     Ready(Option<T>),
     Unavailable(Unavailable),
+    /// Salsa / request cancellation. AnalysisSnapshot fills this.
+    #[allow(dead_code)]
     Cancelled,
+    /// Result belongs to an older snapshot and must not be published.
+    #[allow(dead_code)]
     Stale,
 }
 
@@ -214,9 +218,11 @@ impl CompilationArtifact {
     /// Symbol at `offset` in `path`. Mapping failure is [`Unavailable`], not
     /// a miss and not a panic that [`Cancelled`](base_db::Cancelled) would eat.
     pub fn query_symbol(&mut self, path: &str, offset: usize) -> QueryStatus<SymbolInfo> {
-        match self.compilation.lookup_symbol(path, offset) {
-            Some(info) => QueryStatus::Ready(Some(info)),
-            None => QueryStatus::Ready(None),
+        match self.compilation.try_lookup_symbol(path, offset) {
+            Ok(hit) => QueryStatus::Ready(hit),
+            Err(_) => QueryStatus::Unavailable(Unavailable::PathNotInCompilation {
+                path: path.to_owned(),
+            }),
         }
     }
 }

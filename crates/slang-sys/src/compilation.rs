@@ -269,9 +269,19 @@ impl Compilation {
     /// no symbol. For a class member the answer also carries the owning
     /// class and its base-class chain.
     pub fn lookup_symbol(&mut self, path: &str, offset: usize) -> Option<SymbolInfo> {
+        self.try_lookup_symbol(path, offset).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// `Err` when `path` is not a buffer in this compilation. `Ok(None)` is
+    /// an elaborated miss.
+    pub fn try_lookup_symbol(
+        &mut self,
+        path: &str,
+        offset: usize,
+    ) -> Result<Option<SymbolInfo>, String> {
         let answer =
-            ffi::lookup_symbol(self.raw_pin(), path, offset).unwrap_or_else(|err| panic!("{err}"));
-        answer.found.then_some(SymbolInfo {
+            ffi::lookup_symbol(self.raw_pin(), path, offset).map_err(|err| err.to_string())?;
+        Ok(answer.found.then_some(SymbolInfo {
             name: answer.name,
             type_name: answer.type_name,
             kind: answer.kind,
@@ -279,7 +289,7 @@ impl Compilation {
             def_offset: answer.def_offset,
             owner_class: answer.owner_class,
             inheritance: answer.inheritance,
-        })
+        }))
     }
 
     pub fn lookup_scoped(&mut self, left: &str, right: &str) -> Option<SymbolInfo> {
