@@ -52,7 +52,9 @@ fn project_instance(
     };
     for profile in profiles {
         let mut artifact = ctx.profile_compilation(profile);
-        let rows = artifact.list_instances();
+        let crate::compile::QueryStatus::Ready(Some(rows)) = artifact.query_instances() else {
+            continue;
+        };
         if rows.is_empty() {
             continue;
         }
@@ -160,7 +162,9 @@ mod tests {
         let path = {
             let ctx = host.ctx();
             let mut artifact = ctx.profile_compilation(ctx.db.file_compilation_profile(file_id));
-            let rows = artifact.list_instances();
+            let crate::compile::QueryStatus::Ready(Some(rows)) = artifact.query_instances() else {
+                panic!("profile instances must be Ready");
+            };
             assert!(!rows.is_empty(), "expected instances");
             rows.into_iter()
                 .find(|row| row.path.contains("u0"))

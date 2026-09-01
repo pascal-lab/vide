@@ -112,7 +112,9 @@ endclass
         let (host, file_id) = setup_with_path(src, "/top.sv");
         let ctx = host.ctx();
         let mut artifact = ctx.profile_compilation(ctx.db.file_compilation_profile(file_id));
-        let rows = artifact.list_instances();
+        let crate::compile::QueryStatus::Ready(Some(rows)) = artifact.query_instances() else {
+            panic!("profile instances must be Ready");
+        };
         let u0 =
             rows.iter().find(|row| row.path.contains("u0")).unwrap_or_else(|| panic!("{rows:?}"));
         let site = src.find("u0").expect("instance name");

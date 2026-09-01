@@ -478,7 +478,12 @@ endclass
         let path = "/vide-assigned/top.sv";
         let checker = "checker c(input logic clk);\nendchecker\nmodule top(input clk);\n  c u(clk);\nendmodule\n";
         let mut compilation = Compilation::new();
-        compilation.parse_syntax_tree_from_text(checker, "top", path, &SyntaxTreeOptions::default());
+        compilation.parse_syntax_tree_from_text(
+            checker,
+            "top",
+            path,
+            &SyntaxTreeOptions::default(),
+        );
         let info = compilation
             .lookup_symbol(path, checker.find("c u").expect("checker type"))
             .expect("checker instantiation type name must be a symbol");

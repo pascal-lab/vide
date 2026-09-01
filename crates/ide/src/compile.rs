@@ -27,7 +27,7 @@ use preproc_expand::{
     db::{CompilationDiagnostic, PreprocDb},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use slang_sys::compilation::{Compilation, MemberInfo, SourceSession, SymbolInfo};
+use slang_sys::compilation::{Compilation, HierInstance, MemberInfo, SourceSession, SymbolInfo};
 use syntax::{SyntaxTreeOptions, diagnostics::SyntaxDiagnostic};
 use utils::{
     path_identity::PathIdentityIndex,
@@ -241,6 +241,11 @@ impl CompilationArtifact {
 
     pub fn query_scope_members(&mut self, name: &str) -> QueryStatus<Vec<MemberInfo>> {
         QueryStatus::Ready(Some(self.compilation.list_scope_members(name)))
+    }
+
+    /// Profile hierarchy. Keystroke requests must not wait on this.
+    pub fn query_instances(&mut self) -> QueryStatus<Vec<HierInstance>> {
+        QueryStatus::Ready(Some(self.compilation.list_instances()))
     }
 }
 
@@ -1145,7 +1150,10 @@ mod tests {
             files,
             &CompileOptions::for_profile(&db, db.file_compilation_profile(TOP)),
         );
-        let instances = compilation.list_instances();
+        let crate::compile::QueryStatus::Ready(Some(instances)) = compilation.query_instances()
+        else {
+            panic!("profile instances must be Ready");
+        };
         assert!(
             instances.iter().any(|inst| inst.path.contains("u0")),
             "profile compile of two files must elaborate the instance: {instances:?}"

@@ -104,6 +104,7 @@ impl AnalysisContext<'_> {
         compiler.lock().compile(self.db, files, options)
     }
 
+    /// File-closure compile. Must not wait on a profile compilation.
     pub(crate) fn keystroke_compilation(
         &self,
         file_id: vfs::FileId,
@@ -321,9 +322,10 @@ impl AnalysisSnapshot {
     ) -> Cancellable<Vec<(crate::hier::HierPath, FileId, utils::line_index::TextRange)>> {
         self.with_db(|ctx| {
             let mut artifact = ctx.profile_compilation(Some(profile_id));
-            artifact
-                .list_instances()
-                .into_iter()
+            let crate::compile::QueryStatus::Ready(Some(rows)) = artifact.query_instances() else {
+                return Vec::new();
+            };
+            rows.into_iter()
                 .filter_map(|row| {
                     let file = artifact.file_id_for_path(&row.file)?;
                     let tail = row.path.rsplit('.').next().unwrap_or(row.path.as_str());
