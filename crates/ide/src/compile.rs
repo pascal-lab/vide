@@ -27,7 +27,7 @@ use preproc_expand::{
     db::{CompilationDiagnostic, PreprocDb},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use slang_sys::compilation::{Compilation, SourceSession};
+use slang_sys::compilation::{Compilation, SourceSession, SymbolInfo};
 use syntax::{SyntaxTreeOptions, diagnostics::SyntaxDiagnostic};
 use utils::{
     path_identity::PathIdentityIndex,
@@ -161,6 +161,24 @@ impl CompileOptions {
     }
 }
 
+/// One semantic query against a [`Compilation`].
+///
+/// Request-path callers must keep these states distinct. There is no helper
+/// that folds them into `Option`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueryStatus<T> {
+    Ready(Option<T>),
+    Unavailable(Unavailable),
+    Cancelled,
+    Stale,
+}
+
+/// Why a query could not use a Compilation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unavailable {
+    PathNotInCompilation { path: String },
+}
+
 /// Product of one [`Compiler::compile`].
 ///
 /// Callers query the [`Compilation`] value and the FileIds this compile
@@ -191,6 +209,15 @@ impl CompilationArtifact {
     #[cfg(test)]
     pub fn fingerprint(&self) -> u64 {
         self.fingerprint
+    }
+
+    /// Symbol at `offset` in `path`. Mapping failure is [`Unavailable`], not
+    /// a miss and not a panic that [`Cancelled`](base_db::Cancelled) would eat.
+    pub fn query_symbol(&mut self, path: &str, offset: usize) -> QueryStatus<SymbolInfo> {
+        match self.compilation.lookup_symbol(path, offset) {
+            Some(info) => QueryStatus::Ready(Some(info)),
+            None => QueryStatus::Ready(None),
+        }
     }
 }
 
@@ -986,6 +1013,40 @@ mod tests {
             artifact.file_id_for_path(&other_path),
             None,
             "workspace path index must not leak files this compilation did not cover"
+        );
+    }
+
+    #[test]
+    fn compile_artifact_lookup_distinguishes_hit_miss_and_unmapped() {
+        let other = FileId::from_raw(3);
+        let user = "module top;\n  import pkg::*;\n  leaf inst;\n  initial inst.m_leaf_name = \"x\";\nendmodule\n";
+        let db = db_with_files(&[
+            (USER, "user.sv", user),
+            (PKG, "pkg.sv", "package pkg;\n  `include \"leaf.svh\"\nendpackage\n"),
+            (LEAF, "leaf.svh", "class leaf;\n  string m_leaf_name;\nendclass\n"),
+            (other, "other.sv", "module other;\nendmodule\n"),
+        ]);
+        let mut compiler = Compiler::new();
+        let mut artifact = compiler.compile(&db, [USER, PKG], &CompileOptions::for_file(&db, USER));
+        let user_path = compilation_plan::source_buffer_path(&db, USER).to_string();
+        let other_path = compilation_plan::source_buffer_path(&db, other).to_string();
+
+        let QueryStatus::Ready(Some(info)) =
+            artifact.query_symbol(&user_path, user.find("m_leaf_name").expect("use"))
+        else {
+            panic!("included class member must be Ready(Some)");
+        };
+        assert_eq!(info.owner_class, "leaf", "{info:?}");
+
+        assert!(
+            matches!(artifact.query_symbol(&user_path, 0), QueryStatus::Ready(None)),
+            "an elaborated miss must be Ready(None), not Unavailable"
+        );
+
+        let unmapped = artifact.query_symbol(&other_path, 0);
+        assert!(
+            matches!(unmapped, QueryStatus::Unavailable(Unavailable::PathNotInCompilation { .. })),
+            "a path this compilation does not own must be Unavailable, not a miss and not a panic: {unmapped:?}"
         );
     }
 
