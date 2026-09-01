@@ -1,7 +1,7 @@
 use std::{
     ops::{Deref, Range},
     panic::AssertUnwindSafe,
-    sync::{Arc as StdArc, atomic::AtomicBool},
+    sync::Arc as StdArc,
 };
 
 use base_db::{
@@ -166,23 +166,6 @@ impl AnalysisContext<'_> {
 
     pub(crate) fn unit_catalog(&self) -> triomphe::Arc<design_graph::UnitCatalog> {
         <dyn DesignGraphDb>::source_unit_catalog(self.db)
-    }
-
-    pub(crate) fn prewarm_unit_catalog(
-        &self,
-        cancel: &AtomicBool,
-    ) -> Option<triomphe::Arc<design_graph::UnitCatalog>> {
-        if cancel.load(std::sync::atomic::Ordering::Acquire) {
-            return None;
-        }
-        Some(self.unit_catalog())
-    }
-
-    pub(crate) fn prewarm_resolution(&self, cancel: &AtomicBool) -> Option<Arc<ResolutionContext>> {
-        if cancel.load(std::sync::atomic::Ordering::Acquire) {
-            return None;
-        }
-        Some(self.resolution())
     }
 
     /// This-file lexical nameres and package imports. Not types / `::` /

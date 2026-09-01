@@ -1,10 +1,4 @@
-use std::{
-    sync::{
-        Arc as StdArc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread::{self, JoinHandle},
-};
+use std::sync::Arc as StdArc;
 
 use base_db::{
     analysis_snapshot::AnalysisSnapshotId, change::Change, diagnostics_config::DiagnosticsConfig,
@@ -23,13 +17,7 @@ pub struct AnalysisHost {
     db: RootDb,
     store: Arc<ProductStore>,
     snapshot_id: AnalysisSnapshotId,
-    prewarm: Option<PrewarmTask>,
     compiler: StdArc<parking_lot::Mutex<Compiler>>,
-}
-
-struct PrewarmTask {
-    cancel: StdArc<AtomicBool>,
-    worker: JoinHandle<()>,
 }
 
 impl AnalysisHost {
@@ -38,7 +26,6 @@ impl AnalysisHost {
             db: RootDb::new(lru_capacity),
             store: Arc::new(ProductStore::default()),
             snapshot_id: AnalysisSnapshotId::default(),
-            prewarm: None,
             compiler: StdArc::new(parking_lot::Mutex::new(Compiler::new())),
         }
     }
@@ -51,7 +38,6 @@ impl AnalysisHost {
     }
 
     pub fn make_analysis(&self) -> AnalysisSnapshot {
-        self.signal_foreground_request();
         let db = self.db.clone();
         let salsa_revision = base_db::salsa::plumbing::current_revision(&db);
         AnalysisSnapshot {
@@ -64,38 +50,16 @@ impl AnalysisHost {
     }
 
     pub fn apply_change(&mut self, change: Change) {
-        self.cancel_prewarm();
-        let (store, affected_files) = ProductStore::transition(&self.store, &mut self.db, change);
-        self.store = store;
-        self.advance_revision();
-        if !affected_files.is_empty() {
-            self.start_prewarm(affected_files);
-        }
-        // A request that arrives before the prewarm lands answers from HIR
-        // and moves on, which is right in an editor and useless in a test:
-        // the assertion would depend on which one won. Tests observe the
-        // warm state, so they wait for it.
-        #[cfg(test)]
-        self.await_prewarm();
-    }
-
-    /// Wait for the revision prewarm without cancelling it.
-    #[cfg(test)]
-    fn await_prewarm(&mut self) {
-        if let Some(task) = self.prewarm.take() {
-            let _ = task.worker.join();
-        }
-    }
-
-    /// Apply a change without starting revision prewarm. Benches that build
-    /// a large workspace would otherwise spend Drop joining `unit_scope`
-    /// over every file.
-    #[cfg(test)]
-    pub(crate) fn apply_change_without_prewarm(&mut self, change: Change) {
-        self.cancel_prewarm();
         let (store, _) = ProductStore::transition(&self.store, &mut self.db, change);
         self.store = store;
         self.advance_revision();
+    }
+
+    /// Same as [`Self::apply_change`]. Kept for benches that used to avoid
+    /// joining a revision prewarm thread on Drop.
+    #[cfg(test)]
+    pub(crate) fn apply_change_without_prewarm(&mut self, change: Change) {
+        self.apply_change(change);
     }
 
     pub fn set_diagnostics_config(&mut self, config: Arc<DiagnosticsConfig>) {
@@ -107,82 +71,17 @@ impl AnalysisHost {
         self.snapshot_id = self.snapshot_id.next();
     }
 
-    fn start_prewarm(&mut self, affected_files: Vec<vfs::FileId>) {
-        let db = self.db.clone();
-        let store = self.store.clone();
-        let cancel = StdArc::new(AtomicBool::new(false));
-        let worker_cancel = cancel.clone();
-        let worker = thread::Builder::new()
-            .name("vide-revision-prewarm".to_owned())
-            .spawn(move || {
-                if worker_cancel.load(Ordering::Acquire) {
-                    return;
-                }
-                let ctx = AnalysisContext::new(&db, &store, None);
-                for file_id in affected_files {
-                    if worker_cancel.load(Ordering::Acquire) {
-                        return;
-                    }
-                    if db.file_kind(file_id).is_semantic_compilation_unit() {
-                        let _ = <dyn design_graph::DesignGraphDb>::file_decls(&db, file_id);
-                    }
-                }
-                let _ = ctx.prewarm_unit_catalog(&worker_cancel);
-                if !worker_cancel.load(Ordering::Acquire) {
-                    let _ = ctx.prewarm_resolution(&worker_cancel);
-                }
-            })
-            .expect("failed to spawn revision prewarm worker");
-        self.prewarm = Some(PrewarmTask { cancel, worker });
-    }
-
-    fn cancel_prewarm(&mut self) {
-        let Some(task) = self.prewarm.take() else {
-            return;
-        };
-        task.cancel.store(true, Ordering::Release);
-        // Do not join: the worker checks cancel between files and drops its
-        // salsa snapshot. Joining waited out an in-flight fold on the main
-        // loop and showed up as after-edit request latency.
-    }
-
-    fn join_prewarm(&mut self) {
-        let Some(task) = self.prewarm.take() else {
-            return;
-        };
-        task.cancel.store(true, Ordering::Release);
-        let _ = task.worker.join();
-    }
-
-    fn signal_foreground_request(&self) {
-        if let Some(task) = &self.prewarm {
-            task.cancel.store(true, Ordering::Release);
-        }
-    }
-
     pub fn snapshot_id(&self) -> AnalysisSnapshotId {
         self.snapshot_id
     }
 
     pub fn raw_db(&self) -> &RootDb {
-        self.signal_foreground_request();
         &self.db
     }
 
     #[cfg(test)]
     pub(crate) fn ctx(&self) -> AnalysisContext<'_> {
         AnalysisContext::new(&self.db, &self.store, Some(&self.compiler))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn has_revision_prewarm(&self) -> bool {
-        self.prewarm.is_some()
-    }
-}
-
-impl Drop for AnalysisHost {
-    fn drop(&mut self) {
-        self.join_prewarm();
     }
 }
 
@@ -636,15 +535,7 @@ mod tests {
         change.add_changed_file(ChangedFile::create(user_id, user));
 
         let mut host = AnalysisHost::new(None);
-        assert!(
-            !host.has_revision_prewarm(),
-            "AnalysisHost::new must not start a revision worker"
-        );
-        host.apply_change_without_prewarm(change);
-        assert!(
-            !host.has_revision_prewarm(),
-            "hover/goto must not wait on vide-revision-prewarm"
-        );
+        host.apply_change(change);
 
         let offset = utils::line_index::TextSize::from(user.find("m_leaf_name").unwrap() as u32);
         let hover = host
