@@ -1,10 +1,9 @@
 //! Semantic lookups on the keystroke file-closure compilation.
 //!
-//! `None` means the closure compilation elaborated and found nothing at that
-//! name or offset. The request waits on [`Compiler::compile`]; it does not
-//! go through the profile elaboration worker.
+//! This module only calls the Compilation seam. Symbol lookup returns
+//! [`QueryStatus`]: a miss is `Ready(None)`, a missing path is `Unavailable`.
 //!
-//! [`Compiler::compile`]: crate::compile::Compiler::compile
+//! [`QueryStatus`]: crate::compile::QueryStatus
 
 use preproc_expand::compilation_plan;
 use slang_sys::compilation::{Compilation, MemberInfo, SymbolInfo};
@@ -12,7 +11,7 @@ use slang_sys::compilation::{Compilation, MemberInfo, SymbolInfo};
 use syntax::SyntaxTreeOptions;
 use vfs::FileId;
 
-use crate::analysis::AnalysisContext;
+use crate::{analysis::AnalysisContext, compile::QueryStatus};
 
 fn with_keystroke<T>(
     ctx: &AnalysisContext<'_>,
@@ -27,9 +26,9 @@ pub fn lookup_symbol_at(
     ctx: &AnalysisContext<'_>,
     file_id: FileId,
     offset: usize,
-) -> Option<SymbolInfo> {
+) -> QueryStatus<SymbolInfo> {
     let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
-    with_keystroke(ctx, file_id, |slang| slang.lookup_symbol(&path, offset))
+    ctx.keystroke_compilation(file_id).query_symbol(&path, offset)
 }
 
 pub fn lookup_scoped_at(
@@ -131,7 +130,10 @@ endclass
         file_id: FileId,
         offset: utils::line_index::TextSize,
     ) -> Option<SymbolInfo> {
-        lookup_symbol_at(&host.ctx(), file_id, usize::from(offset))
+        match lookup_symbol_at(&host.ctx(), file_id, usize::from(offset)) {
+            QueryStatus::Ready(hit) => hit,
+            _ => None,
+        }
     }
 
     #[test]

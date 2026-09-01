@@ -133,7 +133,11 @@ fn slang_symbol_nav(
 ) -> Option<Vec<NavTarget>> {
     let file = hir_file_id.as_file()?;
     let range = token.text_range()?;
-    let info = crate::slang_class::lookup_symbol_at(db, file, usize::from(range.start()))?;
+    let crate::compile::QueryStatus::Ready(Some(info)) =
+        crate::elab_lookup::lookup_symbol_at(db, file, usize::from(range.start()))
+    else {
+        return None;
+    };
     nav_from_symbol_info(db, info)
 }
 
@@ -145,7 +149,7 @@ fn slang_scoped_nav(
     let file = hir_file_id.as_file()?;
     let (left, right) = crate::definitions::colon_colon_query(token)
         .or_else(|| crate::definitions::dotted_member_query(token))?;
-    let info = crate::slang_class::lookup_scoped_at(db, file, &left, &right)?;
+    let info = crate::elab_lookup::lookup_scoped_at(db, file, &left, &right)?;
     nav_from_symbol_info(db, info)
 }
 

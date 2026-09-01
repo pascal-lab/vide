@@ -227,7 +227,7 @@ pub(crate) fn slang_colon_colon(
 
     let file = file_id.as_file()?;
     let (left, right) = colon_colon_query(tp)?;
-    let info = crate::slang_class::lookup_scoped_at(db, file, &left, &right)?;
+    let info = crate::elab_lookup::lookup_scoped_at(db, file, &left, &right)?;
     if info.def_file.is_empty() {
         return None;
     }

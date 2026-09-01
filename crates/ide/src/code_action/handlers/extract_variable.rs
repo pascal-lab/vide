@@ -10,7 +10,7 @@ use utils::text_edit::{TextRange, TextSize};
 
 use crate::{
     code_action::{CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent},
-    slang_class,
+    elab_lookup,
 };
 
 const ID: CodeActionId =
@@ -177,7 +177,7 @@ fn extracted_variable_type(ctx: &CodeActionCtx<'_>, expr: ast::Expression<'_>) -
 }
 
 fn lookup_type_range(ctx: &CodeActionCtx<'_>, range: TextRange) -> Option<String> {
-    slang_class::lookup_type_at(
+    elab_lookup::lookup_type_at(
         ctx.analysis(),
         ctx.file_id(),
         usize::from(range.start()),

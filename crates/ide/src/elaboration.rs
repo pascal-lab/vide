@@ -16,7 +16,7 @@ mod tests {
 
     use crate::{
         analysis_host::AnalysisHost,
-        slang_class,
+        elab_lookup,
         test_utils::{setup_marked, setup_with_path},
     };
 
@@ -33,7 +33,10 @@ endclass
         file_id: FileId,
         offset: TextSize,
     ) -> Option<slang_sys::compilation::SymbolInfo> {
-        slang_class::lookup_symbol_at(&host.ctx(), file_id, usize::from(offset))
+        match elab_lookup::lookup_symbol_at(&host.ctx(), file_id, usize::from(offset)) {
+            crate::compile::QueryStatus::Ready(hit) => hit,
+            _ => None,
+        }
     }
 
     #[test]

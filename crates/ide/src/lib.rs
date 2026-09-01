@@ -32,6 +32,7 @@ pub(crate) mod design_unit;
 pub mod diagnostics;
 pub mod document_highlight;
 pub mod document_symbols;
+pub(crate) mod elab_lookup;
 pub(crate) mod elaboration;
 pub mod folding_ranges;
 pub mod formatting;
@@ -52,7 +53,6 @@ pub mod selection_ranges;
 pub(crate) mod semantic_target;
 pub mod semantic_tokens;
 pub mod signature_help;
-pub(crate) mod slang_class;
 #[cfg(test)]
 mod test_utils;
 pub(crate) mod token;

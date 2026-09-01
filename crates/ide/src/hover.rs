@@ -298,14 +298,18 @@ fn slang_type_line(
 ) -> Option<String> {
     let file = file_id.as_file()?;
     let range = tp.text_range()?;
-    let info = crate::slang_class::lookup_symbol_at(db, file, usize::from(range.start()))?;
+    let crate::compile::QueryStatus::Ready(Some(info)) =
+        crate::elab_lookup::lookup_symbol_at(db, file, usize::from(range.start()))
+    else {
+        return None;
+    };
     if info.type_name.is_empty() {
         return None;
     }
     if info.owner_class.is_empty() {
         Some(info.type_name)
     } else {
-        Some(crate::slang_class::format_class_member(
+        Some(crate::elab_lookup::format_class_member(
             &info.owner_class,
             &info.type_name,
             &info.inheritance,
