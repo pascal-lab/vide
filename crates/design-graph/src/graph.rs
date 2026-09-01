@@ -399,20 +399,6 @@ impl UnitCatalog {
         self.meta.len()
     }
 
-    pub fn candidates(&self, name: &str, role: InstantiationRole) -> SmallVec<[UnitId; 2]> {
-        let matches = match role {
-            InstantiationRole::Hierarchy => UnitKind::is_hierarchy_target,
-            InstantiationRole::Checker => |kind: UnitKind| matches!(kind, UnitKind::Checker),
-        };
-        self.by_name
-            .get(name)
-            .into_iter()
-            .flatten()
-            .filter(|id| matches(id.kind))
-            .cloned()
-            .collect()
-    }
-
     fn named(&self, name: &str, pred: impl Fn(&UnitId) -> bool) -> Resolution<UnitId> {
         Resolution::from_candidates(
             self.by_name.get(name).into_iter().flatten().filter(|id| pred(id)).cloned(),

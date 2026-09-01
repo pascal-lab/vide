@@ -645,6 +645,25 @@ mod tests {
         );
     }
 
+    /// P5.3: snapshot identity + parse-deps store, no extra epoch/cache clock.
+    #[test]
+    fn snapshot_and_store_have_no_extra_epoch_clocks() {
+        let epoch = ["ep", "och"].join("");
+        let store = include_str!("incrementality/store.rs");
+        let host = include_str!("analysis_host.rs");
+        let compiler = include_str!("compile.rs");
+        assert!(!store.contains(&epoch), "ProductStore must not grow an epoch clock");
+        assert!(
+            store.contains("parse_dependencies"),
+            "ProductStore stays the paid parse-deps table"
+        );
+        assert!(!host.contains(&epoch), "AnalysisHost must not add an epoch beside snapshot_id");
+        assert!(
+            !compiler.contains("compilations:"),
+            "Compiler must not cache Compilation values across revisions"
+        );
+    }
+
     /// P5.1: production must not ask the catalog for Unique UnitId binding.
     #[test]
     fn production_catalog_lookups_are_file_locators() {
