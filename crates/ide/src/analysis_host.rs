@@ -173,6 +173,11 @@ impl AnalysisHost {
     pub(crate) fn ctx(&self) -> AnalysisContext<'_> {
         AnalysisContext::new(&self.db, &self.store, Some(&self.compiler))
     }
+
+    #[cfg(test)]
+    pub(crate) fn has_revision_prewarm(&self) -> bool {
+        self.prewarm.is_some()
+    }
 }
 
 impl Drop for AnalysisHost {
@@ -599,6 +604,63 @@ mod tests {
             after.module_names().iter().any(|name| name == "other"),
             "{:?}",
             after.module_names()
+        );
+    }
+
+    #[test]
+    fn hover_and_goto_work_without_a_revision_prewarm_thread() {
+        use base_db::{
+            project::{CompilationProfile, CompilationProfileId, ProjectConfig},
+            source_root::SourceRootId,
+        };
+        use triomphe::Arc;
+
+        let pkg = "package pkg;\n  class leaf;\n    string m_leaf_name;\n  endclass\nendpackage\n";
+        let user = "module top;\n  import pkg::*;\n  leaf inst;\n  initial inst.m_leaf_name = \"x\";\nendmodule\n";
+        let pkg_id = FileId::from_raw(0);
+        let user_id = FileId::from_raw(1);
+        let mut file_set = FileSet::default();
+        file_set.insert(pkg_id, VfsPath::new_virtual_path("/pkg.sv".to_owned()));
+        file_set.insert(user_id, VfsPath::new_virtual_path("/user.sv".to_owned()));
+        let mut change = Change::new();
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: Default::default(),
+            }],
+        )));
+        change.add_changed_file(ChangedFile::create(pkg_id, pkg));
+        change.add_changed_file(ChangedFile::create(user_id, user));
+
+        let mut host = AnalysisHost::new(None);
+        assert!(
+            !host.has_revision_prewarm(),
+            "AnalysisHost::new must not start a revision worker"
+        );
+        host.apply_change_without_prewarm(change);
+        assert!(
+            !host.has_revision_prewarm(),
+            "hover/goto must not wait on vide-revision-prewarm"
+        );
+
+        let offset = utils::line_index::TextSize::from(user.find("m_leaf_name").unwrap() as u32);
+        let hover = host
+            .make_analysis()
+            .hover(crate::FilePosition { file_id: user_id, offset })
+            .unwrap()
+            .expect("hover");
+        assert!(
+            hover.info.as_str().contains("string"),
+            "package+user hover must work without a prewarm thread: {}",
+            hover.info.as_str()
+        );
+        let names = goto_names(&host, user_id, user, "m_leaf_name");
+        assert!(
+            names.iter().any(|name| name.contains("m_leaf_name") || name.contains("leaf")),
+            "package+user goto must work without a prewarm thread: {names:?}"
         );
     }
 
