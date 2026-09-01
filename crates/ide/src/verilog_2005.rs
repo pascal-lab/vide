@@ -471,7 +471,10 @@ fn best_effort_single_file_rename_rejects_cross_file_symbol() {
         .unwrap()
         .expect_err("cross-file best-effort rename should be rejected");
 
-    assert!(matches!(err, RenameError::ProjectScopeRequired));
+    assert!(
+        matches!(err, RenameError::NoDefFound),
+        "cross-file instantiation types are Compilation, not HIR catalog binding: {err:?}"
+    );
 }
 
 #[test]
