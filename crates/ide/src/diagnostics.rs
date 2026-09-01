@@ -227,7 +227,7 @@ pub fn materialize_compiler_diagnostics(
 ) -> Vec<Diagnostic> {
     compiler_diagnostics
         .into_iter()
-        .filter_map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
+        .map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
         .collect()
 }
 
@@ -264,9 +264,9 @@ fn slang_diagnostic(
     file_id: FileId,
     source: SlangDiagnosticSource,
     diag: &SyntaxDiagnostic,
-) -> Option<Diagnostic> {
-    let range = to_text_range(diag)?;
-    Some(Diagnostic {
+) -> Diagnostic {
+    let range = to_text_range(diag).unwrap_or_else(|| TextRange::empty(TextSize::new(0)));
+    Diagnostic {
         file_id,
         code: diag.code,
         subsystem: diag.subsystem,
@@ -284,7 +284,7 @@ fn slang_diagnostic(
         message_key: None,
         message_args: Vec::new(),
         tags: Vec::new(),
-    })
+    }
 }
 
 #[cfg(test)]
@@ -644,7 +644,7 @@ fn to_text_range(diag: &SyntaxDiagnostic) -> Option<TextRange> {
         code = diag.code,
         subsystem = diag.subsystem,
         name = %diag.name,
-        "dropping Slang diagnostic without a source location"
+        "slang diagnostic has no source location; keeping it as a file-level diagnostic"
     );
     None
 }
