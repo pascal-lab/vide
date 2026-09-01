@@ -1,9 +1,12 @@
 //! Cursor classification against live `FileFacts` and a name join.
 
-use smallvec::SmallVec;
 use utils::line_index::TextSize;
 
-use crate::{facts::FileFacts, graph::UnitCatalog, unit::UnitId};
+use crate::{
+    facts::FileFacts,
+    graph::UnitCatalog,
+    unit::{InstantiationRole, UnitId},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CursorHit {
@@ -13,12 +16,12 @@ pub enum CursorHit {
     },
     InstantiationType {
         range: utils::line_index::TextRange,
-        targets: SmallVec<[UnitId; 2]>,
+        name: smol_str::SmolStr,
+        role: InstantiationRole,
     },
     PackageRef {
         name: smol_str::SmolStr,
         range: utils::line_index::TextRange,
-        targets: SmallVec<[UnitId; 2]>,
     },
     Other,
 }
@@ -30,19 +33,21 @@ pub fn hit_local(facts: &FileFacts, offset: TextSize) -> Option<CursorHit> {
     Some(CursorHit::DeclName { unit: decl.id.clone(), range })
 }
 
-/// Instantiation and package names need the workspace catalog.
+/// Instantiation and package names need the workspace catalog as a locator.
 pub fn hit_global(facts: &FileFacts, graph: &UnitCatalog, offset: TextSize) -> CursorHit {
-    if let Some(site) = facts.instantiation_at(offset) {
-        let targets = graph.candidates(&site.name, site.role);
-        if !targets.is_empty() {
-            return CursorHit::InstantiationType { range: site.range, targets };
-        }
+    if let Some(site) = facts.instantiation_at(offset)
+        && !graph.files_for_role(&site.name, site.role).is_empty()
+    {
+        return CursorHit::InstantiationType {
+            range: site.range,
+            name: site.name.clone(),
+            role: site.role,
+        };
     }
-    if let Some((name, range)) = facts.package_token_at(offset) {
-        let targets = graph.packages_named(&name).into_vec();
-        if !targets.is_empty() {
-            return CursorHit::PackageRef { name, range, targets };
-        }
+    if let Some((name, range)) = facts.package_token_at(offset)
+        && !graph.files_named_matching(&name, |kind| kind.is_package()).is_empty()
+    {
+        return CursorHit::PackageRef { name, range };
     }
     CursorHit::Other
 }
@@ -99,10 +104,7 @@ mod tests {
             !src.contains(&candidates),
             "hit_global must classify with locator files, not catalog UnitId candidates"
         );
-        assert!(
-            !src.contains(&packages),
-            "hit_global must not use catalog Unique package binding"
-        );
+        assert!(!src.contains(&packages), "hit_global must not use catalog Unique package binding");
     }
 
     #[test]

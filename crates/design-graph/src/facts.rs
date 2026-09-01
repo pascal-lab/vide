@@ -7,7 +7,7 @@ use syntax::TokenKind;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use crate::unit::{InstantiationRole, UnitId, UnitNode, UnitOrigin};
+use crate::unit::{InstantiationRole, UnitId, UnitKind, UnitNode, UnitOrigin};
 
 pub mod extract;
 
@@ -163,6 +163,24 @@ impl FileFacts {
         self.units.iter().find(|unit| unit.name_range == Some(range))
     }
 
+    /// This-file search hits for `name` with a matching instantiation role.
+    pub fn units_for_role(&self, name: &str, role: InstantiationRole) -> SmallVec<[UnitId; 2]> {
+        self.units
+            .iter()
+            .filter(|unit| unit.id.name == name && role_matches(role, unit.id.kind))
+            .map(|unit| unit.id.clone())
+            .collect()
+    }
+
+    /// This-file search hits for a package named `name`.
+    pub fn package_units(&self, name: &str) -> SmallVec<[UnitId; 2]> {
+        self.units
+            .iter()
+            .filter(|unit| unit.id.name == name && unit.id.kind.is_package())
+            .map(|unit| unit.id.clone())
+            .collect()
+    }
+
     /// Import package token or `::` left ident covering `offset`.
     pub fn package_token_at(&self, offset: TextSize) -> Option<(smol_str::SmolStr, TextRange)> {
         if let Some(import) = self.imports.iter().find(|import| import.range.contains(offset)) {
@@ -178,5 +196,12 @@ impl FileFacts {
     /// package-ref sites, and source ranges do not move the structure clock.
     pub fn same_structure(&self, other: &Self) -> bool {
         self.decls() == other.decls()
+    }
+}
+
+fn role_matches(role: InstantiationRole, kind: UnitKind) -> bool {
+    match role {
+        InstantiationRole::Hierarchy => kind.is_hierarchy_target(),
+        InstantiationRole::Checker => matches!(kind, UnitKind::Checker),
     }
 }

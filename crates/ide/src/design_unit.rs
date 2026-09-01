@@ -5,7 +5,7 @@
 //! to a different file's module is lookup on the closure compilation, not a
 //! catalog identity. `hit_global` remains for find-references.
 
-use design_graph::{CursorHit, UnitId, UnitKind, hit_global, hit_local};
+use design_graph::{CursorHit, InstantiationRole, UnitId, UnitKind, hit_global, hit_local};
 use nohash_hasher::IntMap;
 use smallvec::SmallVec;
 use utils::line_index::{TextRange, TextSize};
@@ -48,14 +48,31 @@ fn this_file_units(
         return Some((SmallVec::from_elem(unit, 1), range));
     }
     match hit_global(&facts, &db.unit_catalog(), offset) {
-        CursorHit::InstantiationType { range, targets }
-        | CursorHit::PackageRef { range, targets, .. }
-            if !targets.is_empty() && targets.iter().all(|unit| unit.file == file_id) =>
+        CursorHit::InstantiationType { range, name, role }
+            if locator_files_are(db, file_id, |catalog| catalog.files_for_role(&name, role)) =>
         {
-            Some((targets, range))
+            let units = facts.units_for_role(&name, role);
+            (!units.is_empty()).then_some((units, range))
+        }
+        CursorHit::PackageRef { name, range }
+            if locator_files_are(db, file_id, |catalog| {
+                catalog.files_named_matching(&name, |kind| kind.is_package())
+            }) =>
+        {
+            let units = facts.package_units(&name);
+            (!units.is_empty()).then_some((units, range))
         }
         _ => None,
     }
+}
+
+fn locator_files_are(
+    db: &AnalysisContext<'_>,
+    file_id: FileId,
+    files: impl FnOnce(&design_graph::UnitCatalog) -> smallvec::SmallVec<[FileId; 2]>,
+) -> bool {
+    let files = files(&db.unit_catalog());
+    !files.is_empty() && files.iter().all(|&file| file == file_id)
 }
 
 pub(crate) fn references(
@@ -68,9 +85,14 @@ pub(crate) fn references(
         CursorHit::DeclName { unit, range } => {
             Some(vec![references_for_units(db, &[unit], range, config)])
         }
-        CursorHit::InstantiationType { range, targets }
-        | CursorHit::PackageRef { range, targets, .. } => {
-            Some(vec![references_for_units(db, &targets, range, config)])
+        CursorHit::InstantiationType { range, name, role } => Some(vec![references_for_units(
+            db,
+            &units_from_locator(db, &name, role),
+            range,
+            config,
+        )]),
+        CursorHit::PackageRef { name, range } => {
+            Some(vec![references_for_units(db, &packages_from_locator(db, &name), range, config)])
         }
     }
 }
@@ -85,13 +107,13 @@ fn hit(db: &AnalysisContext<'_>, file_id: FileId, offset: TextSize) -> CursorHit
     }
     let graph = db.unit_catalog();
     let hit = hit_global(&facts, &graph, offset);
-    let (hit_kind, target_count) = match &hit {
-        CursorHit::DeclName { .. } => ("decl_name", 1usize),
-        CursorHit::InstantiationType { targets, .. } => ("instantiation_type", targets.len()),
-        CursorHit::PackageRef { targets, .. } => ("package_ref", targets.len()),
-        CursorHit::Other => ("other", 0usize),
+    let hit_kind = match &hit {
+        CursorHit::DeclName { .. } => "decl_name",
+        CursorHit::InstantiationType { .. } => "instantiation_type",
+        CursorHit::PackageRef { .. } => "package_ref",
+        CursorHit::Other => "other",
     };
-    tracing::debug!(hit_kind, target_count, "design_graph.hit");
+    tracing::debug!(hit_kind, "design_graph.hit");
     hit
 }
 
@@ -159,20 +181,17 @@ fn references_for_units(
     for file in reference_files(db, config) {
         let facts = db.file_facts(file);
         for site in facts.instantiations.iter() {
-            let targets = graph.candidates(&site.name, site.role);
-            if units.iter().any(|unit| targets.iter().any(|target| target == unit)) {
+            if units.iter().any(|unit| instantiation_refers_to(graph.as_ref(), site, unit)) {
                 refs.entry(file).or_default().push((site.range, ReferenceCategory::empty()));
             }
         }
         for import in facts.imports.iter() {
-            let targets = graph.packages_named(&import.package).into_vec();
-            if units.iter().any(|unit| targets.iter().any(|target| target == unit)) {
+            if units.iter().any(|unit| package_refers_to(graph.as_ref(), &import.package, unit)) {
                 refs.entry(file).or_default().push((import.range, ReferenceCategory::empty()));
             }
         }
         for site in facts.package_refs.iter() {
-            let targets = graph.packages_named(&site.name).into_vec();
-            if units.iter().any(|unit| targets.iter().any(|target| target == unit)) {
+            if units.iter().any(|unit| package_refers_to(graph.as_ref(), &site.name, unit)) {
                 refs.entry(file).or_default().push((site.range, ReferenceCategory::empty()));
             }
         }
@@ -203,6 +222,45 @@ fn reference_files(db: &AnalysisContext<'_>, config: &ReferencesConfig) -> Vec<F
         .collect()
 }
 
+fn units_from_locator(
+    db: &AnalysisContext<'_>,
+    name: &str,
+    role: InstantiationRole,
+) -> SmallVec<[UnitId; 2]> {
+    db.unit_catalog()
+        .files_for_role(name, role)
+        .into_iter()
+        .flat_map(|file| db.file_facts(file).units_for_role(name, role))
+        .collect()
+}
+
+fn packages_from_locator(db: &AnalysisContext<'_>, name: &str) -> SmallVec<[UnitId; 2]> {
+    db.unit_catalog()
+        .files_named_matching(name, |kind| kind.is_package())
+        .into_iter()
+        .flat_map(|file| db.file_facts(file).package_units(name))
+        .collect()
+}
+
+fn instantiation_refers_to(
+    catalog: &design_graph::UnitCatalog,
+    site: &design_graph::InstantiationSite,
+    unit: &UnitId,
+) -> bool {
+    site.name == unit.name
+        && catalog.files_for_role(&site.name, site.role).contains(&unit.file)
+        && match site.role {
+            InstantiationRole::Hierarchy => unit.kind.is_hierarchy_target(),
+            InstantiationRole::Checker => matches!(unit.kind, UnitKind::Checker),
+        }
+}
+
+fn package_refers_to(catalog: &design_graph::UnitCatalog, name: &str, unit: &UnitId) -> bool {
+    unit.kind.is_package()
+        && unit.name == name
+        && catalog.files_named_matching(name, |kind| kind.is_package()).contains(&unit.file)
+}
+
 fn def_kind(kind: UnitKind) -> Option<crate::DefKind> {
     match kind {
         UnitKind::Module => Some(crate::DefKind::Module),
@@ -221,8 +279,13 @@ pub(crate) fn source_visible_hit(
     match hit(db, file_id, offset) {
         CursorHit::Other => false,
         CursorHit::DeclName { unit, .. } => is_source_unit(db, &unit),
-        CursorHit::InstantiationType { targets, .. } | CursorHit::PackageRef { targets, .. } => {
-            !targets.is_empty() && targets.iter().all(|unit| is_source_unit(db, unit))
+        CursorHit::InstantiationType { name, role, .. } => {
+            let units = units_from_locator(db, &name, role);
+            !units.is_empty() && units.iter().all(|unit| is_source_unit(db, unit))
+        }
+        CursorHit::PackageRef { name, .. } => {
+            let units = packages_from_locator(db, &name);
+            !units.is_empty() && units.iter().all(|unit| is_source_unit(db, unit))
         }
     }
 }
@@ -239,8 +302,11 @@ pub(crate) fn rename_guard(
     match hit(db, file_id, offset) {
         CursorHit::Other => Ok(()),
         CursorHit::DeclName { unit, .. } => reject_generated(db, &[unit]),
-        CursorHit::InstantiationType { targets, .. } | CursorHit::PackageRef { targets, .. } => {
-            reject_generated(db, &targets)
+        CursorHit::InstantiationType { name, role, .. } => {
+            reject_generated(db, &units_from_locator(db, &name, role))
+        }
+        CursorHit::PackageRef { name, .. } => {
+            reject_generated(db, &packages_from_locator(db, &name))
         }
     }
 }

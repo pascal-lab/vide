@@ -98,8 +98,8 @@ pub(crate) fn incoming_module_edges(
             let Some(caller) = site.container.clone() else {
                 continue;
             };
-            let targets = graph.candidates(&site.name, site.role);
-            if targets.len() == 1 && targets[0] == callee {
+            let targets = units_from_locator(db, graph.as_ref(), &site.name, site.role);
+            if targets.iter().any(|target| target == &callee) {
                 edges.push(ModuleCallEdge {
                     caller: call_item(db, &caller),
                     callee: call_item(db, &callee),
@@ -125,18 +125,29 @@ pub(crate) fn outgoing_module_edges(
     let mut edges = Vec::new();
     for site in facts.instantiations.iter().filter(|site| site.container.as_ref() == Some(&caller))
     {
-        let targets = graph.candidates(&site.name, site.role);
-        if targets.len() != 1 {
-            continue;
+        for target in units_from_locator(db, graph.as_ref(), &site.name, site.role) {
+            edges.push(ModuleCallEdge {
+                caller: call_item(db, &caller),
+                callee: call_item(db, &target),
+                call_range: site.range,
+            });
         }
-        edges.push(ModuleCallEdge {
-            caller: call_item(db, &caller),
-            callee: call_item(db, &targets[0]),
-            call_range: site.range,
-        });
     }
     sort_and_dedup_edges(&mut edges);
     edges
+}
+
+fn units_from_locator(
+    db: &crate::analysis::AnalysisContext<'_>,
+    catalog: &design_graph::UnitCatalog,
+    name: &str,
+    role: design_graph::InstantiationRole,
+) -> smallvec::SmallVec<[UnitId; 2]> {
+    catalog
+        .files_for_role(name, role)
+        .into_iter()
+        .flat_map(|file| db.file_facts(file).units_for_role(name, role))
+        .collect()
 }
 
 fn unit_at_name_range(
