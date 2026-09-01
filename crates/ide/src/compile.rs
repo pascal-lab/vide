@@ -395,7 +395,15 @@ impl Compiler {
             files.dedup();
             files
         };
-        let artifact = self.compile_inner(db, files.iter().copied(), options, &[]);
+        let extra = files
+            .iter()
+            .find_map(|&file| db.file_compilation_profile(file))
+            .map(|profile| {
+                let plan = <dyn PreprocDb>::compilation_plan_for_profile(db, Some(profile));
+                compilation_plan::compilation_source_buffers_for_plan(db, &plan)
+            })
+            .unwrap_or_default();
+        let artifact = self.compile_inner(db, files.iter().copied(), options, &extra);
         let buffer_file_ids = self.buffer_file_ids(&artifact);
         let warning_options = warning_options(config);
         let mut diagnostics = Vec::new();
@@ -570,18 +578,21 @@ impl Compiler {
         let mut inputs = vec![file];
         inputs.extend(<dyn PreprocDb>::static_include_closure(db, file).files().iter().copied());
         inputs.extend(
+            compilation_plan::assigned_include_buffers_for_file(db, file)
+                .into_iter()
+                .map(|buffer| buffer.file_id),
+        );
+        inputs.extend(
             files
                 .iter()
                 .copied()
                 .filter(|&file| !db.file_kind(file).is_semantic_compilation_unit()),
         );
-        inputs.extend(
-            extra
-                .iter()
-                .map(|buffer| buffer.file_id)
-                .filter(|&file| !db.file_kind(file).is_semantic_compilation_unit()),
-        );
-        inputs.iter().all(|file| self.hashes.get(file) == current.get(file))
+        inputs.extend(extra.iter().map(|buffer| buffer.file_id));
+        inputs.iter().all(|file| match (self.hashes.get(file), current.get(file)) {
+            (Some(old), Some(new)) => old == new,
+            _ => false,
+        })
     }
 
     fn put_text(&mut self, db: &RootDb, file: FileId) -> bool {

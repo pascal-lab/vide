@@ -165,10 +165,10 @@ pub(crate) fn parse_diagnostics_on(
     ctx: &crate::analysis::AnalysisContext<'_>,
     file_id: FileId,
 ) -> Vec<Diagnostic> {
-    match ctx.compiler {
-        Some(compiler) => parse_diagnostics_with(ctx.db, file_id, &mut compiler.lock()),
-        None => parse_diagnostics(ctx.db, file_id),
-    }
+    // A reused keystroke session can keep an expanded include tree after
+    // `replace_buffer`. Open-file parse uses a fresh session so overlay
+    // edits are visible; keystroke lookup still reuses `ctx.compiler`.
+    parse_diagnostics(ctx.db, file_id)
 }
 
 fn parse_diagnostics_with(

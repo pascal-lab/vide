@@ -446,6 +446,9 @@ fn collect_semantic_diagnostics(
         }
         for (slang, _) in profiles {
             for diagnostic in slang {
+                if diagnostic.source != ide::diagnostics::DiagnosticSource::SlangSemantic {
+                    continue;
+                }
                 by_file.entry(diagnostic.file_id).or_default().push(diagnostic);
             }
         }
@@ -462,6 +465,7 @@ fn collect_semantic_diagnostics(
 
     let i18n = snapshot.config.i18n;
     let mut publish_files = FxHashMap::default();
+    let mut parse_by_file = FxHashMap::<FileId, Vec<ide::diagnostics::Diagnostic>>::default();
     for file_id in touched_files.iter().copied() {
         cancellation.check()?;
         let targets = snapshot
@@ -469,6 +473,12 @@ fn collect_semantic_diagnostics(
             .with_context(|| format!("failed to resolve diagnostic targets for {file_id:?}"))?;
         let line_info = snapshot.line_info(file_id)?;
         let external = snapshot.external_lsp_diagnostics(file_id)?;
+        if !targets.is_empty() {
+            parse_by_file
+                .entry(file_id)
+                .or_default()
+                .extend(snapshot.analysis.parse_diagnostics(file_id).unwrap_or_default());
+        }
         publish_files.insert(file_id, (targets, line_info, external));
     }
     drop(snapshot);
@@ -479,6 +489,9 @@ fn collect_semantic_diagnostics(
     for (slang, vide_diagnostics) in profiles {
         cancellation.check()?;
         for diagnostic in slang {
+            if diagnostic.source != ide::diagnostics::DiagnosticSource::SlangSemantic {
+                continue;
+            }
             diagnostic_count += 1;
             slang_by_file.entry(diagnostic.file_id).or_default().push(diagnostic);
         }
@@ -493,6 +506,12 @@ fn collect_semantic_diagnostics(
         cached.entry(*file_id).or_default();
     }
     let mut diagnostics_by_file = merge_slang_and_vide(slang_by_file, vide_by_file);
+    for (file_id, parse) in parse_by_file {
+        let rest = diagnostics_by_file.remove(&file_id).unwrap_or_default();
+        let mut diagnostics = parse;
+        diagnostics.extend(rest);
+        diagnostics_by_file.insert(file_id, diagnostics);
+    }
     let delivery = SemanticDiagnosticsDelivery::Push(materialize_semantic_publish_batch(
         publish_files,
         &touched_files,

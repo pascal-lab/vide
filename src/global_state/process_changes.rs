@@ -374,13 +374,18 @@ impl GlobalState {
                 continue;
             }
             let freshness = snapshot.diagnostic_commit_freshness();
+            let parse = snapshot.analysis.parse_diagnostics(file_id).unwrap_or_default();
             let slang = snapshot.slang_diagnostics.ide_diagnostics(
                 file_id,
                 freshness.snapshot_id(),
                 &snapshot.analysis,
             );
             let vide = snapshot.analysis.file_vide_diagnostics(file_id).unwrap_or_default();
-            let diagnostics = super::semantic_compiler::with_vide_diagnostics(slang, vide);
+            let mut diagnostics = parse;
+            diagnostics.extend(slang.into_iter().filter(|diagnostic| {
+                diagnostic.source == ide::diagnostics::DiagnosticSource::SlangSemantic
+            }));
+            diagnostics.extend(vide);
             let Ok(lsp_diagnostics) = snapshot.lsp_diagnostics_from_ide(file_id, diagnostics)
             else {
                 continue;

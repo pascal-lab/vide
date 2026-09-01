@@ -214,7 +214,11 @@ impl GlobalStateSnapshot {
         &self,
         profile_id: base_db::project::CompilationProfileId,
     ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
-        let mut diagnostics = self.compilation_profile_slang_diagnostics(profile_id)?;
+        let mut diagnostics = Vec::new();
+        for file_id in self.analysis.compilation_profile_file_ids(profile_id)? {
+            diagnostics.extend(self.analysis.parse_diagnostics(file_id)?);
+        }
+        diagnostics.extend(self.compilation_profile_slang_diagnostics(profile_id)?);
         for file_id in self.mem_docs.file_ids() {
             if self.analysis.file_compilation_profile(file_id)? == Some(profile_id) {
                 diagnostics.extend(self.analysis.file_vide_diagnostics(file_id)?);
@@ -223,24 +227,28 @@ impl GlobalStateSnapshot {
         Ok(diagnostics)
     }
 
-    /// Slang diagnostics of the profile plus Vide checks of this file.
-    /// Does not lower every compilation-unit body to answer one document.
+    /// Covering-closure parse plus cached profile semantic plus Vide checks.
+    /// Does not compile the profile on the request path.
     fn compilation_profile_file_diagnostics(
         &self,
         profile_id: base_db::project::CompilationProfileId,
         file_id: FileId,
     ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
+        let mut diagnostics = self.analysis.parse_diagnostics(file_id)?;
         let config = self.config.diagnostics_config();
         if config.enabled && config.semantic.enabled {
-            let mut diagnostics = self
-                .compilation_profile_slang_diagnostics(profile_id)?
-                .into_iter()
-                .filter(|diagnostic| diagnostic.file_id == file_id)
-                .collect::<Vec<_>>();
-            diagnostics.extend(self.analysis.file_vide_diagnostics(file_id)?);
-            return Ok(diagnostics);
+            diagnostics.extend(
+                self.compilation_profile_slang_diagnostics(profile_id)?.into_iter().filter(
+                    |diagnostic| {
+                        diagnostic.file_id == file_id
+                            && diagnostic.source
+                                == ide::diagnostics::DiagnosticSource::SlangSemantic
+                    },
+                ),
+            );
         }
-        Ok(self.analysis.diagnostics(file_id)?)
+        diagnostics.extend(self.analysis.file_vide_diagnostics(file_id)?);
+        Ok(diagnostics)
     }
 
     fn compilation_profile_slang_diagnostics(
@@ -249,24 +257,22 @@ impl GlobalStateSnapshot {
     ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
         let files = self.analysis.compilation_profile_file_ids(profile_id)?;
         let freshness = self.diagnostic_commit_freshness();
-        let ledger_is_current = !files.is_empty()
-            && files.iter().all(|file_id| {
-                self.slang_diagnostics.has_file(*file_id)
-                    && self.slang_diagnostics.edits_ago(*file_id, freshness.snapshot_id()) == 0
-            });
-        if ledger_is_current {
-            return Ok(files
-                .into_iter()
-                .flat_map(|file_id| {
-                    self.slang_diagnostics.ide_diagnostics(
-                        file_id,
-                        freshness.snapshot_id(),
-                        &self.analysis,
-                    )
-                })
-                .collect());
-        }
-        Ok(self.analysis.compilation_profile_slang_diagnostics(profile_id)?)
+        Ok(files
+            .into_iter()
+            .flat_map(|file_id| {
+                if self.slang_diagnostics.edits_ago(file_id, freshness.snapshot_id()) != 0 {
+                    return Vec::new();
+                }
+                self.slang_diagnostics.ide_diagnostics(
+                    file_id,
+                    freshness.snapshot_id(),
+                    &self.analysis,
+                )
+            })
+            .filter(|diagnostic| {
+                diagnostic.source == ide::diagnostics::DiagnosticSource::SlangSemantic
+            })
+            .collect())
     }
 
     pub(crate) fn external_diagnostics(

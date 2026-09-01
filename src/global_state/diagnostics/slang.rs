@@ -60,10 +60,6 @@ impl SlangDiagnostics {
         self.ledger.is_empty()
     }
 
-    pub(crate) fn has_file(&self, file_id: FileId) -> bool {
-        self.ledger.lock().contains_key(&file_id)
-    }
-
     pub(crate) fn edits_ago(&self, file_id: FileId, current_snapshot: AnalysisSnapshotId) -> u64 {
         self.ledger
             .lock()
