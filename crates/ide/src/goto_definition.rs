@@ -91,6 +91,9 @@ fn nav_targets_for_token(
     token: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
     handle_ctrl_flow_kw(db.db, hir_file_id, token).or_else(|| {
+        if crate::definitions::dotted_member_query(token).is_some() {
+            return compilation_nav(db, hir_file_id, token);
+        }
         if crate::definitions::is_compilation_name(token) {
             return compilation_nav(db, hir_file_id, token)
                 .or_else(|| this_file_hir_nav(db, hir_file_id, token));

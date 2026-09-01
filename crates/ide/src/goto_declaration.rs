@@ -65,6 +65,9 @@ fn render_source_declaration_target(
     let navs = tokens
         .into_iter()
         .filter_map(|token| {
+            if crate::definitions::dotted_member_query(token).is_some() {
+                return crate::goto_definition::compilation_nav(db, hir_file_id, token);
+            }
             if crate::definitions::is_compilation_name(token) {
                 return crate::goto_definition::compilation_nav(db, hir_file_id, token)
                     .or_else(|| crate::goto_definition::this_file_hir_nav(db, hir_file_id, token));
