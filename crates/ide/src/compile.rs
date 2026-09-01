@@ -759,7 +759,7 @@ fn warning_options(config: &DiagnosticsConfig) -> Vec<String> {
     }
 }
 
-fn collect_diagnostics(
+pub(crate) fn collect_diagnostics(
     config: &DiagnosticsConfig,
     source: SlangDiagnosticSource,
     raw: Vec<SyntaxDiagnostic>,
@@ -1387,6 +1387,50 @@ mod tests {
         let diagnostics =
             compiler.diagnostics(&db, [TOP], &CompileOptions::for_file(&db, TOP), &config);
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn unmapped_buffer_diagnostics_are_kept_on_the_covering_file() {
+        let covering = FileId::from_raw(0);
+        let mut buffer_file_ids = FxHashMap::default();
+        buffer_file_ids.insert(1, FileId::from_raw(1));
+        let raw = vec![SyntaxDiagnostic {
+            code: 1,
+            subsystem: 5,
+            severity: syntax::diagnostics::DiagnosticSeverity::Error,
+            message: "from missing buffer".to_owned(),
+            args: Vec::new(),
+            name: "MissingBuffer".to_owned(),
+            option_name: None,
+            groups: Vec::new(),
+            primary_range: Some(0..4),
+            location: Some(0),
+            buffer_id: Some(99),
+            file_name: Some("ghost.sv".to_owned()),
+            ranges: Vec::new(),
+            expansion_locations: Vec::new(),
+            include_stack: Vec::new(),
+            diagnostic_id: 1,
+            parent_diagnostic_id: None,
+        }];
+        let mut diagnostics = Vec::new();
+        collect_diagnostics(
+            &DiagnosticsConfig::default(),
+            SlangDiagnosticSource::Parse,
+            raw,
+            &buffer_file_ids,
+            &mut diagnostics,
+        );
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "unmapped slang buffers must stay visible: {diagnostics:?}"
+        );
+        assert_eq!(diagnostics[0].file_id, covering);
+        assert!(
+            diagnostics[0].diagnostic.message.contains("from missing buffer"),
+            "{diagnostics:?}"
+        );
     }
 
     fn db_without_profile(entries: &[(FileId, &str, &str)]) -> RootDb {
