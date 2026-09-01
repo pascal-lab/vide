@@ -643,7 +643,7 @@ mod tests {
         DIAGNOSTIC_LOWERING_INVALID_SYNTAX, DiagnosticSource, DiagnosticTag,
         INACTIVE_PREPROCESSOR_BRANCH, LOWERING_INVALID_SYNTAX, LOWERING_UNSUPPORTED_SYNTAX,
         SlangDiagnosticSource, SyntaxDiagnostic, compilation_profile_diagnostics, diagnostics,
-        slang_diagnostic, to_text_range,
+        parse_diagnostics, slang_diagnostic, to_text_range,
     };
     use crate::db::root_db::RootDb;
 
@@ -1145,6 +1145,61 @@ mod tests {
 
         assert!(plan.source_roots.is_empty());
         assert!(plan.roots.is_empty());
+    }
+
+    #[test]
+    fn open_file_parse_diagnostics_map_include_header_from_covering_closure() {
+        let root = if cfg!(windows) {
+            "C:/vide-parse-include-header"
+        } else {
+            "/vide-parse-include-header"
+        };
+        let root = AbsPathBuf::assert(root.into());
+        let top_path = root.join("top.sv");
+        let header_path = root.join("defs.svh");
+        let header_text = "wire x = ;\n";
+
+        let mut db = RootDb::new(None);
+        let mut file_set = FileSet::default();
+        file_set.insert(FileId::from_raw(0), VfsPath::from(top_path.clone()));
+        file_set.insert(FileId::from_raw(1), VfsPath::from(header_path));
+
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile::create(
+            FileId::from_raw(0),
+            "module top;\n`include \"defs.svh\"\nendmodule\n",
+        ));
+        change.add_changed_file(ChangedFile::create(FileId::from_raw(1), header_text));
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: PreprocessConfig {
+                    include_dirs: vec![root],
+                    ..PreprocessConfig::default()
+                },
+            }],
+        )));
+        db.apply_change(change);
+
+        let header = FileId::from_raw(1);
+        let diagnostics = parse_diagnostics(&db, header);
+        assert!(
+            diagnostics.iter().any(|diag| {
+                diag.file_id == header
+                    && diag.source == DiagnosticSource::SlangParse
+                    && header_text
+                        .get(usize::from(diag.range.start())..usize::from(diag.range.end()))
+                        .is_some()
+            }),
+            "open-file parse of an include header must use the covering closure Compilation: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics.iter().all(|diag| diag.file_id == header),
+            "header parse diagnostics must keep the header file id: {diagnostics:?}"
+        );
     }
 
     #[test]
