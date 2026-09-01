@@ -404,32 +404,9 @@ fn resolve_instantiation_type_name(
         SyntaxAncestors::start_from(parent).find_map(ast::HierarchyInstantiation::cast)
         && instantiation.type_() == Some(tok)
     {
-        // This-file CU owners and lexical nameres. Cross-file source
-        // hierarchy is the compilation, not catalog OwnerId binding.
-        if let (Some(file), Some(name)) = (file_id.as_file(), hir_def::lower_ident_opt(Some(tok))) {
-            let local_cu = Resolution::from_candidates(
-                hir_def::unit::cu_owners_named_in_file(sema.db, file, &name, |kind| {
-                    kind.is_hierarchy_target()
-                })
-                .into_iter()
-                .filter_map(|owner| DefId::from_owner(sema.db, owner)),
-            );
-            if !local_cu.is_unresolved() {
-                return Some(local_cu.map(DefinitionClass::Definition));
-            }
-        }
-        let resolution =
-            nameres_ident(sema, file_id, tp, NameContext::Type, container).or_else(|| {
-                Resolution::from_candidates(
-                    nameres_ident(sema, file_id, tp, NameContext::Value, container)
-                        .into_candidates()
-                        .into_iter()
-                        .filter(|def| def.kind(sema.db) == DefKind::Udp),
-                )
-            });
-        if !resolution.is_unresolved() {
-            return Some(resolution.map(DefinitionClass::Definition));
-        }
+        // Paid-parse generated owners first (HirFileId::Macro). Then this-file
+        // source CU owners and lexical nameres. Cross-file source hierarchy
+        // is the compilation, not catalog OwnerId binding.
         if let Some(name) = hir_def::lower_ident_opt(Some(tok)) {
             let generated = Resolution::from_candidates(
                 context
@@ -440,8 +417,31 @@ fn resolve_instantiation_type_name(
             if !generated.is_unresolved() {
                 return Some(generated.map(DefinitionClass::Definition));
             }
+            if let Some(file) = file_id.as_file() {
+                let local_cu = Resolution::from_candidates(
+                    hir_def::unit::cu_owners_named_in_file(sema.db, file, &name, |kind| {
+                        kind.is_hierarchy_target()
+                    })
+                    .into_iter()
+                    .filter_map(|owner| DefId::from_owner(sema.db, owner)),
+                );
+                if !local_cu.is_unresolved() {
+                    return Some(local_cu.map(DefinitionClass::Definition));
+                }
+            }
         }
-        return Some(resolution.map(DefinitionClass::Definition));
+        return Some(
+            nameres_ident(sema, file_id, tp, NameContext::Type, container)
+                .or_else(|| {
+                    Resolution::from_candidates(
+                        nameres_ident(sema, file_id, tp, NameContext::Value, container)
+                            .into_candidates()
+                            .into_iter()
+                            .filter(|def| def.kind(sema.db) == DefKind::Udp),
+                    )
+                })
+                .map(DefinitionClass::Definition),
+        );
     }
 
     None
