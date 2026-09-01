@@ -9,7 +9,8 @@ use syntax::{
 
 use super::candidate::CompletionCandidate;
 use crate::{
-    FilePosition, analysis::AnalysisContext, completion::context::CompletionContext, elab_lookup,
+    FilePosition, analysis::AnalysisContext, compile::QueryStatus,
+    completion::context::CompletionContext, elab_lookup,
 };
 
 pub(super) fn complete_member_access(
@@ -23,8 +24,11 @@ pub(super) fn complete_member_access(
         return Vec::new();
     };
     if let Some(name) = colon_colon_scope_name(root, position.offset) {
-        let members = elab_lookup::list_scope_members_at(db, position.file_id, &name);
-        return to_candidates(members, prefix, ctx);
+        return members_to_candidates(
+            elab_lookup::list_scope_members_at(db, position.file_id, &name),
+            prefix,
+            ctx,
+        );
     }
 
     let Some(expr) = dot_prefix_expr(root, position.offset) else {
@@ -47,15 +51,34 @@ pub(super) fn complete_member_access(
         return Vec::new();
     };
     let by_name = elab_lookup::list_scope_members_at(db, position.file_id, prefix_text);
-    if !by_name.is_empty() {
-        return to_candidates(by_name, prefix, ctx);
+    if let QueryStatus::Ready(Some(members)) = &by_name
+        && !members.is_empty()
+    {
+        return members_to_candidates(by_name, prefix, ctx);
     }
-    let by_type = elab_lookup::list_members_at(
-        db,
-        position.file_id,
-        usize::from(range.end()).saturating_sub(1),
-    );
-    to_candidates(by_type, prefix, ctx)
+    members_to_candidates(
+        elab_lookup::list_members_at(
+            db,
+            position.file_id,
+            usize::from(range.end()).saturating_sub(1),
+        ),
+        prefix,
+        ctx,
+    )
+}
+
+fn members_to_candidates(
+    status: QueryStatus<Vec<slang_sys::compilation::MemberInfo>>,
+    prefix: &str,
+    ctx: &CompletionContext,
+) -> Vec<CompletionCandidate> {
+    match status {
+        QueryStatus::Ready(Some(members)) => to_candidates(members, prefix, ctx),
+        QueryStatus::Ready(None)
+        | QueryStatus::Unavailable(_)
+        | QueryStatus::Cancelled
+        | QueryStatus::Stale => Vec::new(),
+    }
 }
 
 fn to_candidates(

@@ -6,21 +6,12 @@
 //! [`QueryStatus`]: crate::compile::QueryStatus
 
 use preproc_expand::compilation_plan;
-use slang_sys::compilation::{Compilation, MemberInfo, SymbolInfo};
+use slang_sys::compilation::{MemberInfo, SymbolInfo};
 #[cfg(test)]
 use syntax::SyntaxTreeOptions;
 use vfs::FileId;
 
 use crate::{analysis::AnalysisContext, compile::QueryStatus};
-
-fn with_keystroke<T>(
-    ctx: &AnalysisContext<'_>,
-    file_id: FileId,
-    run: impl FnOnce(&mut Compilation) -> T,
-) -> T {
-    let mut compilation = ctx.keystroke_compilation(file_id);
-    run(&mut compilation)
-}
 
 pub fn lookup_symbol_at(
     ctx: &AnalysisContext<'_>,
@@ -50,17 +41,17 @@ pub fn list_scope_members_at(
     ctx: &AnalysisContext<'_>,
     file_id: FileId,
     name: &str,
-) -> Vec<MemberInfo> {
-    with_keystroke(ctx, file_id, |slang| slang.list_scope_members(name))
+) -> QueryStatus<Vec<MemberInfo>> {
+    ctx.keystroke_compilation(file_id).query_scope_members(name)
 }
 
 pub fn list_members_at(
     ctx: &AnalysisContext<'_>,
     file_id: FileId,
     offset: usize,
-) -> Vec<MemberInfo> {
+) -> QueryStatus<Vec<MemberInfo>> {
     let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
-    with_keystroke(ctx, file_id, |slang| slang.list_members(&path, offset))
+    ctx.keystroke_compilation(file_id).query_members(&path, offset)
 }
 
 pub fn lookup_type_at(
@@ -70,7 +61,7 @@ pub fn lookup_type_at(
     end: usize,
 ) -> Option<String> {
     let path = compilation_plan::source_buffer_path(ctx.db, file_id).to_string();
-    with_keystroke(ctx, file_id, |slang| slang.lookup_type(&path, start, end))
+    ctx.keystroke_compilation(file_id).lookup_type(&path, start, end)
 }
 
 /// `owner :: type extends base > base` for a class member.
