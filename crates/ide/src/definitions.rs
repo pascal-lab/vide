@@ -521,6 +521,36 @@ mod tests {
         (host, file_id)
     }
 
+    fn host_with_profile_files(files: &[(&str, &str)]) -> (AnalysisHost, Vec<FileId>) {
+        use base_db::{
+            project::{CompilationProfile, CompilationProfileId, ProjectConfig},
+            source_root::SourceRootId,
+        };
+        use triomphe::Arc;
+
+        let mut file_set = FileSet::default();
+        let mut change = Change::new();
+        let mut ids = Vec::new();
+        for (idx, (path, text)) in files.iter().enumerate() {
+            let file_id = FileId::from_raw(idx as u32);
+            file_set.insert(file_id, VfsPath::new_virtual_path((*path).to_owned()));
+            change.add_changed_file(ChangedFile::create(file_id, *text));
+            ids.push(file_id);
+        }
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: Default::default(),
+            }],
+        )));
+        let mut host = AnalysisHost::default();
+        host.apply_change(change);
+        (host, ids)
+    }
+
     #[derive(Clone, Copy)]
     enum TokenPick {
         LeftBiased,
@@ -620,6 +650,54 @@ module top;
                 .iter()
                 .any(|target| target.focus_range.map(|range| range.start()) == Some(def_at)),
             "hierarchical member must land on leaf_wire: {nav:?}"
+        );
+    }
+
+    #[test]
+    fn instantiation_type_resolution_does_not_use_catalog_owner_binding() {
+        let src = include_str!("definitions.rs");
+        let locate = ["locate_hierarchy", "targets"].join("_");
+        assert!(!src.contains(&locate), "instantiation type resolve must not call {locate}");
+    }
+
+    /// P5.2: cross-file hierarchy is the compilation. HIR must not bind the
+    /// instantiation type through catalog → OwnerId.
+    #[test]
+    fn hir_does_not_bind_a_cross_file_instantiation_type() {
+        let child = "module child;\nendmodule\n";
+        let top = "module top;\n  chi/*caret*/ld u();\nendmodule\n";
+        let offset = TextSize::from(top.find("/*caret*/").unwrap() as u32);
+        let top = top.replace("/*caret*/", "");
+        let (host, files) = host_with_profile_files(&[("/child.sv", child), ("/top.sv", &top)]);
+        let child_id = files[0];
+        let top_id = files[1];
+        let db = host.ctx();
+        let sema = Semantics::<RootDb>::new_with_context(db.db, db.resolution());
+        let parsed = sema.parse_file(top_id);
+        let token = parsed
+            .compilation_unit()
+            .unwrap()
+            .syntax()
+            .token_at_offset(offset)
+            .pick_best_token(crate::token::navigation_precedence)
+            .unwrap();
+
+        let resolution = DefinitionClass::resolve(&db, top_id.into(), token);
+        assert!(
+            resolution.is_unresolved(),
+            "HIR must not bind cross-file hierarchy: {resolution:?}"
+        );
+
+        let nav = host
+            .make_analysis()
+            .goto_definition(crate::FilePosition { file_id: top_id, offset })
+            .unwrap()
+            .expect("compilation must still find child");
+        assert!(
+            nav.info.iter().any(|target| {
+                target.file_id == child_id && target.name.as_deref() == Some("child")
+            }),
+            "goto must land on child.sv via compilation: {nav:?}"
         );
     }
 
