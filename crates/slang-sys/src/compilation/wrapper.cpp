@@ -8,9 +8,11 @@
 #include "slang/ast/expressions/CallExpression.h"
 #include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/expressions/SelectExpressions.h"
+#include "slang/ast/symbols/CheckerSymbols.h"
 #include "slang/ast/symbols/ClassSymbols.h"
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
+#include "slang/ast/symbols/PortSymbols.h"
 #include "slang/ast/symbols/SubroutineSymbols.h"
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/types/AllTypes.h"
@@ -375,6 +377,48 @@ struct FindAtOffset : slang::ast::ASTVisitor<
         consider(symbol, slang::SourceRange(symbol.location, end));
     }
 
+    void consider_instantiation_type(
+        const slang::ast::Symbol& definition,
+        const slang::syntax::SyntaxNode* syntax
+    ) {
+        if (!syntax || !syntax->parent)
+            return;
+        if (const auto* hier =
+                syntax->parent->template as_if<slang::syntax::HierarchyInstantiationSyntax>()) {
+            consider(definition, hier->type.range());
+            return;
+        }
+        if (const auto* prim =
+                syntax->parent->template as_if<slang::syntax::PrimitiveInstantiationSyntax>()) {
+            consider(definition, prim->type.range());
+            return;
+        }
+        if (const auto* checker =
+                syntax->parent->template as_if<slang::syntax::CheckerInstantiationSyntax>()) {
+            consider(definition, checker->type->sourceRange());
+        }
+    }
+
+    void consider_named_ports(const slang::ast::InstanceSymbol& inst) {
+        const auto* syntax = inst.getSyntax();
+        const auto* inst_syntax =
+            syntax ? syntax->template as_if<slang::syntax::HierarchicalInstanceSyntax>() : nullptr;
+        if (!inst_syntax)
+            return;
+        auto conns = inst.getPortConnections();
+        for (auto* conn_syntax : inst_syntax->connections) {
+            const auto* named =
+                conn_syntax->template as_if<slang::syntax::NamedPortConnectionSyntax>();
+            if (!named)
+                continue;
+            auto name = named->name.valueText();
+            for (const auto* conn : conns) {
+                if (conn && conn->port.name == name)
+                    consider(conn->port, named->name.range());
+            }
+        }
+    }
+
     template<typename T>
     void handle(const T& node) {
         if constexpr (std::is_same_v<T, slang::ast::NamedValueExpression> ||
@@ -387,11 +431,14 @@ struct FindAtOffset : slang::ast::ASTVisitor<
             consider(node.member, node.sourceRange);
         } else if constexpr (std::is_same_v<T, slang::ast::InstanceSymbol>) {
             consider_symbol(node);
-            if (const auto* syntax = node.getSyntax(); syntax && syntax->parent) {
-                if (const auto* hier =
-                        syntax->parent->template as_if<slang::syntax::HierarchyInstantiationSyntax>())
-                    consider(node.getDefinition(), hier->type.range());
-            }
+            consider_instantiation_type(node.getDefinition(), node.getSyntax());
+            consider_named_ports(node);
+        } else if constexpr (std::is_same_v<T, slang::ast::CheckerInstanceSymbol>) {
+            consider_symbol(node);
+            consider_instantiation_type(node.body.checker, node.getSyntax());
+        } else if constexpr (std::is_same_v<T, slang::ast::PrimitiveInstanceSymbol>) {
+            consider_symbol(node);
+            consider_instantiation_type(node.primitiveType, node.getSyntax());
         } else if constexpr (std::is_base_of_v<slang::ast::Symbol, T>) {
             consider_symbol(node);
         }
