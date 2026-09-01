@@ -679,4 +679,69 @@ mod tests {
 
         assert_eq!(snapshot.file_ids(), vec![FileId::from_raw(0)]);
     }
+
+    #[test]
+    fn request_path_does_not_compile_profile_semantic_diagnostics() {
+        use base_db::{
+            change::Change,
+            project::{CompilationProfile, CompilationProfileId, ProjectConfig},
+            source_root::{SourceRoot, SourceRootId},
+        };
+        use triomphe::Arc;
+        use vfs::{ChangedFile, FileSet};
+
+        let root = TestDir::new("request-path-no-profile-compile");
+        let root_path = root.path().to_path_buf();
+        let config = config::Config::new(
+            Opt {
+                process_name: "vide-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root_path.clone(),
+            ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+        let (server, _client) = Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
+
+        let child = FileId::from_raw(0);
+        let top = FileId::from_raw(1);
+        let mut file_set = FileSet::default();
+        file_set.insert(child, VfsPath::new_virtual_path("/child.sv".into()));
+        file_set.insert(top, VfsPath::new_virtual_path("/top.sv".into()));
+        let mut change = Change::new();
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: Default::default(),
+            }],
+        )));
+        change.add_changed_file(ChangedFile::create(
+            child,
+            "module child(input logic a, input logic b);\nendmodule\n",
+        ));
+        change.add_changed_file(ChangedFile::create(
+            top,
+            "module top;\n  logic sig;\n  child u(.a(sig));\nendmodule\n",
+        ));
+        state.analysis.analysis_host.apply_change(change);
+
+        assert!(
+            state.diagnostics.slang_diagnostics.is_empty(),
+            "the request must not wait for a background profile compile"
+        );
+        let diagnostics = state.make_snapshot().diagnostics(top).unwrap();
+        assert!(
+            diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
+            "request path must not compile profile semantic diagnostics: {diagnostics:?}"
+        );
+    }
 }
