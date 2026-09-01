@@ -225,6 +225,10 @@ impl CompilationArtifact {
             }),
         }
     }
+
+    pub fn query_scoped(&mut self, left: &str, right: &str) -> QueryStatus<SymbolInfo> {
+        QueryStatus::Ready(self.compilation.lookup_scoped(left, right))
+    }
 }
 
 impl Deref for CompilationArtifact {

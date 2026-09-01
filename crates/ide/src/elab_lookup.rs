@@ -36,8 +36,8 @@ pub fn lookup_scoped_at(
     file_id: FileId,
     left: &str,
     right: &str,
-) -> Option<SymbolInfo> {
-    with_keystroke(ctx, file_id, |slang| slang.lookup_scoped(left, right))
+) -> QueryStatus<SymbolInfo> {
+    ctx.keystroke_compilation(file_id).query_scoped(left, right)
 }
 
 /// Members of the scope a name denotes: a package, a class, or a

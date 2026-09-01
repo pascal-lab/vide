@@ -149,7 +149,11 @@ fn slang_scoped_nav(
     let file = hir_file_id.as_file()?;
     let (left, right) = crate::definitions::colon_colon_query(token)
         .or_else(|| crate::definitions::dotted_member_query(token))?;
-    let info = crate::elab_lookup::lookup_scoped_at(db, file, &left, &right)?;
+    let crate::compile::QueryStatus::Ready(Some(info)) =
+        crate::elab_lookup::lookup_scoped_at(db, file, &left, &right)
+    else {
+        return None;
+    };
     nav_from_symbol_info(db, info)
 }
 
