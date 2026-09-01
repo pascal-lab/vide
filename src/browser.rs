@@ -349,4 +349,122 @@ mod tests {
             "playground goto must not require vide-elaboration: {definition_text}"
         );
     }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn browser_package_user_hover_and_goto_do_not_need_a_worker() {
+        use std::{
+            fs,
+            time::{Duration, Instant},
+        };
+
+        use lsp_types::{
+            Url,
+            notification::{DidOpenTextDocument, Initialized, Notification as _},
+            request::{GotoDefinition, HoverRequest, Request as _},
+        };
+
+        let root = TestDir::new("browser-package-user");
+        fs::write(root.path().join("vide.toml"), "sources = [\"**\"]\ninclude_dirs = [\".\"]\n")
+            .unwrap();
+        let pkg = "package pkg;\n  class leaf;\n    string m_leaf_name;\n  endclass\nendpackage\n";
+        let user = "module top;\n  import pkg::*;\n  leaf inst;\n  initial inst.m_leaf_name = \"x\";\nendmodule\n";
+        fs::write(root.path().join("pkg.sv"), pkg).unwrap();
+        fs::write(root.path().join("user.sv"), user).unwrap();
+        let root_uri = Url::from_file_path(root.path().to_path_buf()).unwrap();
+        let pkg_uri = Url::from_file_path(root.join("pkg.sv")).unwrap();
+        let user_uri = Url::from_file_path(root.join("user.sv")).unwrap();
+
+        let mut server = BrowserServer::new();
+        server
+            .handle_message_json(
+                &serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": { "capabilities": {}, "rootUri": root_uri }
+                })
+                .to_string(),
+            )
+            .unwrap();
+        server
+            .handle_message_json(
+                &serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": Initialized::METHOD,
+                    "params": {}
+                })
+                .to_string(),
+            )
+            .unwrap();
+        for (uri, text) in [(&pkg_uri, pkg), (&user_uri, user)] {
+            server
+                .handle_message_json(
+                    &serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "method": DidOpenTextDocument::METHOD,
+                        "params": {
+                            "textDocument": {
+                                "uri": uri,
+                                "languageId": "systemverilog",
+                                "version": 1,
+                                "text": text
+                            }
+                        }
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+        }
+
+        let needle_col =
+            user.lines().nth(3).and_then(|line| line.find("m_leaf_name")).expect("m_leaf_name")
+                as u32;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut hover_blob = String::new();
+        let mut definition_blob = String::new();
+        while Instant::now() < deadline {
+            let _ = server.poll_json().unwrap();
+            let hover = server
+                .handle_message_json(
+                    &serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": HoverRequest::METHOD,
+                        "params": {
+                            "textDocument": { "uri": user_uri },
+                            "position": { "line": 3, "character": needle_col }
+                        }
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+            let hover_poll = server.poll_json().unwrap();
+            hover_blob = format!("{hover}{hover_poll}");
+            let definition = server
+                .handle_message_json(
+                    &serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": GotoDefinition::METHOD,
+                        "params": {
+                            "textDocument": { "uri": user_uri },
+                            "position": { "line": 3, "character": needle_col }
+                        }
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+            let definition_poll = server.poll_json().unwrap();
+            definition_blob = format!("{definition}{definition_poll}");
+            if hover_blob.contains("string")
+                && (definition_blob.contains("pkg.sv") || definition_blob.contains("m_leaf_name"))
+            {
+                return;
+            }
+        }
+        panic!(
+            "BrowserServer package+user hover/goto must work without a worker: hover={hover_blob} goto={definition_blob}"
+        );
+    }
 }

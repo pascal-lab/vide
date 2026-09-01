@@ -7,9 +7,7 @@ use base_db::{
 use triomphe::Arc;
 
 use crate::{
-    analysis::{AnalysisContext, AnalysisSnapshot},
-    compile::Compiler,
-    db::root_db::RootDb,
+    analysis::AnalysisSnapshot, compile::Compiler, db::root_db::RootDb,
     incrementality::ProductStore,
 };
 
@@ -80,8 +78,8 @@ impl AnalysisHost {
     }
 
     #[cfg(test)]
-    pub(crate) fn ctx(&self) -> AnalysisContext<'_> {
-        AnalysisContext::new(&self.db, &self.store, Some(&self.compiler))
+    pub(crate) fn ctx(&self) -> crate::analysis::AnalysisContext<'_> {
+        crate::analysis::AnalysisContext::new(&self.db, &self.store, Some(&self.compiler))
     }
 }
 
