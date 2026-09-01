@@ -154,6 +154,18 @@ endclass
         let markup = hover.expect("net hover");
         let text = markup.info.as_str();
         assert!(text.contains("logic"), "net hover must show the declaration type:\n{text}");
+        assert!(!text.contains("hir-ty"), "TypeSystem is not the hover type answer:\n{text}");
+    }
+
+    #[test]
+    fn compilation_name_hover_does_not_fall_back_to_hir() {
+        let src = "module top;\n  /*marker:t*/nosuch u0();\nendmodule\n";
+        let (host, file_id, _text, markers) = setup_marked(src);
+        let hover = host.make_analysis().hover(position(file_id, &markers, "t")).unwrap();
+        assert!(
+            hover.is_none(),
+            "an elaborated miss on an instantiation type must not render HIR: {hover:?}"
+        );
     }
 
     #[test]

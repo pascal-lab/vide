@@ -1,12 +1,8 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 2492
 expression: normalize_hover_snapshot(param_hover.info.as_str())
 ---
 ```systemverilog
-localparam logic DEPTH = WIDTH + 1
+logic signed[31:0]
 ```
-
-
----
-
-in `child` from [feature.v](<feature.v#L5>)

@@ -1,12 +1,8 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 3213
 expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 ```systemverilog
-genvar integer signed i
+integer
 ```
-
-
----
-
-in `top` from [feature.v](<feature.v#L27>)

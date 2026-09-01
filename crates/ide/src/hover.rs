@@ -199,21 +199,12 @@ fn handle_definition(
     file_id: HirFileId,
     tp: SyntaxTokenWithParent,
 ) -> Option<Markup> {
-    if crate::definitions::is_compilation_name(tp) {
-        if let Some(ty) = slang_type_line(db, file_id, tp) {
-            let mut res = Markup::new();
-            res.push_with_code_fence(&ty);
-            return Some(res);
-        }
-        return hir_definition_markup(db, file_id, tp, true);
+    if let Some(ty) = slang_type_line(db, file_id, tp) {
+        let mut res = Markup::new();
+        res.push_with_code_fence(&ty);
+        return Some(res);
     }
-    hir_definition_markup(db, file_id, tp, false).or_else(|| {
-        slang_type_line(db, file_id, tp).map(|ty| {
-            let mut res = Markup::new();
-            res.push_with_code_fence(&ty);
-            res
-        })
-    })
+    hir_definition_markup(db, file_id, tp, true)
 }
 
 fn hir_definition_markup(

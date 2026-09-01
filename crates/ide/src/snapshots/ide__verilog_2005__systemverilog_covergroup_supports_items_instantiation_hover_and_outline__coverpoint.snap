@@ -1,12 +1,8 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 2724
 expression: normalize_hover_snapshot(coverpoint_hover.info.as_str())
 ---
 ```systemverilog
-coverpoint cp
+top.cg.cx.CrossValType
 ```
-
-
----
-
-in `top` from [feature.v](<feature.v#L4>)
