@@ -474,6 +474,38 @@ endclass
     }
 
     #[test]
+    fn lookup_symbol_answers_checker_and_udp_instantiation_type_names() {
+        let path = "/vide-assigned/top.sv";
+        let checker = "checker c(input logic clk);\nendchecker\nmodule top(input clk);\n  c u(clk);\nendmodule\n";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(checker, "top", path, &SyntaxTreeOptions::default());
+        let info = compilation
+            .lookup_symbol(path, checker.find("c u").expect("checker type"))
+            .expect("checker instantiation type name must be a symbol");
+        assert_eq!(info.name, "c", "{info:?}");
+
+        let udp = "primitive udp_and(output y, input a, input b);\n  table\n    00:0;\n    11:1;\n  endtable\nendprimitive\nmodule top;\n  wire y, a, b;\n  udp_and u(y, a, b);\nendmodule\n";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(udp, "top", path, &SyntaxTreeOptions::default());
+        let info = compilation
+            .lookup_symbol(path, udp.find("udp_and u").expect("udp type"))
+            .expect("udp instantiation type name must be a symbol");
+        assert_eq!(info.name, "udp_and", "{info:?}");
+    }
+
+    #[test]
+    fn lookup_symbol_answers_the_named_port_label() {
+        let src = "module child(input clk);\nendmodule\nmodule top;\n  logic clk;\n  child u(.clk(clk));\nendmodule\n";
+        let path = "/vide-assigned/top.sv";
+        let mut compilation = Compilation::new();
+        compilation.parse_syntax_tree_from_text(src, "top", path, &SyntaxTreeOptions::default());
+        let info = compilation
+            .lookup_symbol(path, src.find(".clk").expect("port") + 1)
+            .expect("named port label must be a symbol");
+        assert_eq!(info.name, "clk", "{info:?}");
+    }
+
+    #[test]
     fn list_instances_reports_hierarchical_path_and_site() {
         let src = "module child; endmodule\nmodule top; child u0(); endmodule\n";
         let mut compilation = Compilation::new();
