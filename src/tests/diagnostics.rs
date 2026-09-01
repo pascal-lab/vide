@@ -100,6 +100,36 @@ fn did_open_after_semantic_compile_does_not_duplicate_vide_diagnostics() {
 }
 
 #[test]
+fn did_close_after_semantic_compile_does_not_duplicate_vide_diagnostics() {
+    let text = "`ifdef NEVER\nwire hidden;\n`endif\nmodule top;\nendmodule\n";
+    let (_temp_dir, client, server_thread, uri) = setup_configured_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        text,
+    );
+
+    let first = recv_publish_diagnostics_until(
+        &client,
+        &uri,
+        |diagnostics| !vide_diagnostics(diagnostics).is_empty(),
+        "first semantic compile vide diagnostic",
+    );
+    let first_vide = vide_diagnostics(&first).len();
+    assert!(first_vide >= 1, "expected a Vide diagnostic before close: {first:?}");
+
+    close_test_document(&client, uri.clone());
+    let extras = drain_publish_diagnostics_for_uri(&client, &uri, Duration::from_secs(5));
+    for extra in &extras {
+        assert!(
+            vide_diagnostics(extra).len() <= first_vide,
+            "didClose must not duplicate Vide diagnostics: first={first:?} extra={extra:?}"
+        );
+    }
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn default_diagnostics_warn_on_port_width_mismatch() {
     let text = "\
 module width_child(input logic [3:0] a);

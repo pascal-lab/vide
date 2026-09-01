@@ -1264,6 +1264,17 @@ mod tests {
     }
 
     #[test]
+    fn compile_diagnostics_path_does_not_use_process_command() {
+        let needle = ["process", "Command"].join("::");
+        for (name, src) in [
+            ("compile.rs", include_str!("compile.rs")),
+            ("diagnostics.rs", include_str!("diagnostics.rs")),
+        ] {
+            assert!(!src.contains(&needle), "{name} must not spawn a process for diagnostics");
+        }
+    }
+
+    #[test]
     fn compile_profile_diagnostics_are_in_process() {
         let db = db_with_files(&[
             (CHILD, "child.sv", "module child(input logic a, input logic b);\nendmodule\n"),

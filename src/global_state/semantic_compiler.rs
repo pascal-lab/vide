@@ -629,6 +629,13 @@ mod tests {
     };
 
     #[test]
+    fn semantic_compiler_does_not_use_process_command() {
+        let src = include_str!("semantic_compiler.rs");
+        let needle = ["process", "Command"].join("::");
+        assert!(!src.contains(&needle), "in-process semantic diagnostics must not spawn a process");
+    }
+
+    #[test]
     fn semantic_compiler_task_does_not_retain_analysis_snapshot() {
         let root = TestDir::new("semantic-compiler-snapshot-lifetime");
         let root_path = root.path().to_path_buf();
