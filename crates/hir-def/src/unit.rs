@@ -53,6 +53,17 @@ pub fn locate_cu_owners_matching(
             .flat_map(|file| cu_owners_named_in_file(db, file, name, &matches))
             .collect();
     }
+    locate_generated_cu_owners(db, paid_files, name, matches)
+}
+
+/// Compilation-unit owners generated in paid-file macros. Not catalog source
+/// files — those are locator hits, and semantic binding is the compilation.
+pub fn locate_generated_cu_owners(
+    db: &dyn HirDefDb,
+    paid_files: &[FileId],
+    name: &str,
+    matches: impl Fn(UnitKind) -> bool,
+) -> Vec<OwnerId> {
     let mut files: Vec<FileId> = paid_files.to_vec();
     files.sort_by_key(|file| file.index());
     files.dedup();

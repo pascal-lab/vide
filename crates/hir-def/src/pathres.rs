@@ -68,6 +68,17 @@ impl ResolutionContext {
         })
     }
 
+    /// Paid-parse macro-generated hierarchy targets. Not catalog source files.
+    pub fn locate_generated_hierarchy_targets(
+        &self,
+        db: &dyn HirDefDb,
+        name: &str,
+    ) -> Vec<OwnerId> {
+        crate::unit::locate_generated_cu_owners(db, &self.paid_files, name, |kind| {
+            kind.is_hierarchy_target()
+        })
+    }
+
     pub fn locate_packages(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
         locate_cu_owners(db, &self.locator, &self.paid_files, name, design_graph::UnitKind::Package)
     }

@@ -73,7 +73,7 @@ impl DefinitionClass {
         }
 
         if let Some(resolution) =
-            resolve_instantiation_type_name(db, &context, &sema, file_id, tp, container)
+            resolve_instantiation_type_name(&context, &sema, file_id, tp, container)
         {
             return resolution;
         }
@@ -374,7 +374,6 @@ pub(crate) fn colon_colon_query(tp: SyntaxTokenWithParent<'_>) -> Option<(String
 }
 
 fn resolve_instantiation_type_name(
-    _db: &dyn WorkspaceSymbolIndexDb,
     context: &hir_def::pathres::ResolutionContext,
     sema: &SemanticsImpl,
     file_id: HirFileId,
@@ -405,28 +404,31 @@ fn resolve_instantiation_type_name(
         SyntaxAncestors::start_from(parent).find_map(ast::HierarchyInstantiation::cast)
         && instantiation.type_() == Some(tok)
     {
-        let name = hir_def::lower_ident_opt(Some(tok));
-        // Catalog is a locator (name → files), plus paid-file generated
-        // owners. Not UnitId identity.
-        let cu = name.as_ref().map(|name| {
-            hir_def::symbol::Resolution::from_candidates(
-                context
-                    .locate_hierarchy_targets(sema.db, name)
-                    .into_iter()
-                    .filter_map(|owner| DefId::from_owner(sema.db, owner)),
-            )
-        });
-        let resolution = match cu {
-            Some(resolution) if !resolution.is_unresolved() => resolution,
-            _ => nameres_ident(sema, file_id, tp, NameContext::Type, container).or_else(|| {
+        // This-file lexical, plus paid-parse generated owners. Cross-file
+        // source hierarchy is the compilation, not catalog OwnerId binding.
+        let resolution =
+            nameres_ident(sema, file_id, tp, NameContext::Type, container).or_else(|| {
                 Resolution::from_candidates(
                     nameres_ident(sema, file_id, tp, NameContext::Value, container)
                         .into_candidates()
                         .into_iter()
                         .filter(|def| def.kind(sema.db) == DefKind::Udp),
                 )
-            }),
-        };
+            });
+        if !resolution.is_unresolved() {
+            return Some(resolution.map(DefinitionClass::Definition));
+        }
+        if let Some(name) = hir_def::lower_ident_opt(Some(tok)) {
+            let generated = Resolution::from_candidates(
+                context
+                    .locate_generated_hierarchy_targets(sema.db, &name)
+                    .into_iter()
+                    .filter_map(|owner| DefId::from_owner(sema.db, owner)),
+            );
+            if !generated.is_unresolved() {
+                return Some(generated.map(DefinitionClass::Definition));
+            }
+        }
         return Some(resolution.map(DefinitionClass::Definition));
     }
 
