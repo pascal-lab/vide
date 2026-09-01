@@ -613,6 +613,59 @@ mod tests {
         );
     }
 
+    /// P5.1: UnitCatalog is `name → files`. Duplicate CU names are locator
+    /// search hits, not a Unique/files[0] binding.
+    #[test]
+    fn catalog_duplicate_names_are_locator_hits_not_a_unique_binding() {
+        let (host, files) = crate::test_utils::setup_marked_files(&[
+            ("/a.sv", "module child;\nendmodule\n"),
+            ("/b.sv", "module child;\nendmodule\n"),
+            ("/top.sv", "module /*marker:top*/top;\n  child u();\nendmodule\n"),
+        ]);
+        let a = files[0].0;
+        let b = files[1].0;
+        let top = files[2].0;
+        let top_start = files[2].2["top"];
+        let top_range = utils::line_index::TextRange::new(
+            top_start,
+            top_start + utils::line_index::TextSize::of("top"),
+        );
+
+        let located = host.ctx().unit_catalog().files_named("child");
+        assert_eq!(located.len(), 2, "locator must return both files, not files[0]: {located:?}");
+        assert!(located.contains(&a) && located.contains(&b), "{located:?}");
+
+        let outgoing = crate::reference_support::outgoing_module_edges(&host.ctx(), top, top_range);
+        let mut callee_files: Vec<_> = outgoing.iter().map(|edge| edge.callee.file_id).collect();
+        callee_files.sort_by_key(|file| file.index());
+        assert_eq!(
+            callee_files,
+            vec![a, b],
+            "call edges must list both locator hits, not Unique/files[0] or empty: {outgoing:?}"
+        );
+    }
+
+    /// P5.1: production must not ask the catalog for Unique UnitId binding.
+    #[test]
+    fn production_catalog_lookups_are_file_locators() {
+        let packages = ["packages", "named"].join("_");
+        let modules = ["modules", "named"].join("_");
+        let type_units = ["type_units", "named"].join("_");
+        let candidates = ["graph", "candidates"].join(".");
+        for (path, src) in [
+            ("design_unit.rs", include_str!("design_unit.rs")),
+            ("reference_support.rs", include_str!("reference_support.rs")),
+        ] {
+            assert!(!src.contains(&packages), "{path} must not use catalog {packages} as binding");
+            assert!(!src.contains(&modules), "{path} must not use catalog {modules} as binding");
+            assert!(
+                !src.contains(&type_units),
+                "{path} must not use catalog {type_units} as binding"
+            );
+            assert!(!src.contains(&candidates), "{path} must not use {candidates} as identity");
+        }
+    }
+
     /// Cold start of one file hits U1 / U2 / U3 once each. The three
     /// unexpanded parses stay split (empty vs profile predefines vs Trace);
     /// `preprocessor_independent` is one function on U1 and U2.

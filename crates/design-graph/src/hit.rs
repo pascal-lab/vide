@@ -91,6 +91,21 @@ mod tests {
     }
 
     #[test]
+    fn hit_global_does_not_use_catalog_unit_id_binding() {
+        let src = include_str!("hit.rs");
+        let candidates = ["graph", "candidates"].join(".");
+        let packages = ["packages", "named"].join("_");
+        assert!(
+            !src.contains(&candidates),
+            "hit_global must classify with locator files, not catalog UnitId candidates"
+        );
+        assert!(
+            !src.contains(&packages),
+            "hit_global must not use catalog Unique package binding"
+        );
+    }
+
+    #[test]
     fn hierarchy_in_module_body_is_instantiation_when_named() {
         let (facts, offset) =
             facts_and_offset("module top;\n  cc_fifo u();\nendmodule\n", "cc_fifo");
