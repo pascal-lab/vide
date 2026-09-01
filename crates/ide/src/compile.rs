@@ -1043,7 +1043,7 @@ mod tests {
                 preprocess: PreprocessConfig::default(),
             }],
         )));
-        let mut host = crate::analysis_host::AnalysisHost::without_elaboration();
+        let mut host = crate::analysis_host::AnalysisHost::new(None);
         host.apply_change_without_prewarm(change);
         (host, USER, user.to_owned())
     }

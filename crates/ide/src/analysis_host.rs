@@ -28,13 +28,6 @@ impl AnalysisHost {
         }
     }
 
-    /// Same as [`Self::new`]: keystroke compile is on the calling thread and
-    /// there is no `vide-elaboration` worker.
-    #[cfg(test)]
-    pub(crate) fn without_elaboration() -> AnalysisHost {
-        Self::new(None)
-    }
-
     pub fn make_analysis(&self) -> AnalysisSnapshot {
         let db = self.db.clone();
         let salsa_revision = base_db::salsa::plumbing::current_revision(&db);
@@ -502,6 +495,13 @@ mod tests {
             "{:?}",
             after.module_names()
         );
+    }
+
+    #[test]
+    fn analysis_host_does_not_spawn_a_revision_worker() {
+        let src = include_str!("analysis_host.rs");
+        let builder = ["thread", "Builder"].join("::");
+        assert!(!src.contains(&builder), "AnalysisHost must not spawn a revision worker");
     }
 
     #[test]
