@@ -27,7 +27,7 @@ use preproc_expand::{
     db::{CompilationDiagnostic, PreprocDb},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use slang_sys::compilation::{Compilation, SourceSession, SymbolInfo};
+use slang_sys::compilation::{Compilation, MemberInfo, SourceSession, SymbolInfo};
 use syntax::{SyntaxTreeOptions, diagnostics::SyntaxDiagnostic};
 use utils::{
     path_identity::PathIdentityIndex,
@@ -228,6 +228,14 @@ impl CompilationArtifact {
 
     pub fn query_scoped(&mut self, left: &str, right: &str) -> QueryStatus<SymbolInfo> {
         QueryStatus::Ready(self.compilation.lookup_scoped(left, right))
+    }
+
+    pub fn query_members(&mut self, path: &str, offset: usize) -> QueryStatus<Vec<MemberInfo>> {
+        QueryStatus::Ready(Some(self.compilation.list_members(path, offset)))
+    }
+
+    pub fn query_scope_members(&mut self, name: &str) -> QueryStatus<Vec<MemberInfo>> {
+        QueryStatus::Ready(Some(self.compilation.list_scope_members(name)))
     }
 }
 
@@ -1057,6 +1065,43 @@ mod tests {
         assert!(
             matches!(unmapped, QueryStatus::Unavailable(Unavailable::PathNotInCompilation { .. })),
             "a path this compilation does not own must be Unavailable, not a miss and not a panic: {unmapped:?}"
+        );
+    }
+
+    #[test]
+    fn compile_artifact_members_distinguish_scope_and_unmapped() {
+        let other = FileId::from_raw(3);
+        let user = "module top;\n  import pkg::*;\n  leaf inst;\n  initial inst.m_leaf_name = \"x\";\nendmodule\n";
+        let db = db_with_files(&[
+            (USER, "user.sv", user),
+            (PKG, "pkg.sv", "package pkg;\n  `include \"leaf.svh\"\nendpackage\n"),
+            (LEAF, "leaf.svh", "class leaf;\n  string m_leaf_name;\nendclass\n"),
+            (other, "other.sv", "module other;\nendmodule\n"),
+        ]);
+        let mut compiler = Compiler::new();
+        let mut artifact = compiler.compile(&db, [USER, PKG], &CompileOptions::for_file(&db, USER));
+        let user_path = compilation_plan::source_buffer_path(&db, USER).to_string();
+        let other_path = compilation_plan::source_buffer_path(&db, other).to_string();
+        let QueryStatus::Ready(Some(members)) = artifact.query_scope_members("leaf") else {
+            panic!("class scope members must be Ready(Some)");
+        };
+        assert!(
+            members.iter().any(|member| member.name == "m_leaf_name"),
+            "leaf members must include the class field: {members:?}"
+        );
+        let QueryStatus::Ready(Some(by_type)) = artifact
+            .query_members(&user_path, user.find("inst.").expect("dot") + "inst.".len() - 1)
+        else {
+            panic!("expression members must be Ready(Some)");
+        };
+        assert!(
+            by_type.iter().any(|member| member.name == "m_leaf_name"),
+            "inst. members must include the class field: {by_type:?}"
+        );
+        let unmapped = artifact.query_members(&other_path, 0);
+        assert!(
+            matches!(unmapped, QueryStatus::Unavailable(Unavailable::PathNotInCompilation { .. })),
+            "members of a path this compilation does not own must be Unavailable, not an empty list: {unmapped:?}"
         );
     }
 
