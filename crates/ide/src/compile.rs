@@ -407,12 +407,16 @@ impl Compiler {
         let buffer_file_ids = self.buffer_file_ids(&artifact);
         let warning_options = warning_options(config);
         let mut diagnostics = Vec::new();
-        if config.enabled && config.parse.enabled {
+        if let Some(&covering) = files.first()
+            && config.enabled
+            && config.parse.enabled
+        {
             collect_diagnostics(
                 config,
                 SlangDiagnosticSource::Parse,
                 artifact.parse_diagnostics_with_options(&warning_options),
                 &buffer_file_ids,
+                covering,
                 &mut diagnostics,
             );
         }
@@ -522,23 +526,27 @@ impl Compiler {
         let buffer_file_ids = self.buffer_file_ids(&artifact);
         let warning_options = warning_options(config);
         let mut diagnostics = Vec::new();
-        if config.enabled && config.parse.enabled {
-            collect_diagnostics(
-                config,
-                SlangDiagnosticSource::Parse,
-                artifact.parse_diagnostics_with_options(&warning_options),
-                &buffer_file_ids,
-                &mut diagnostics,
-            );
-        }
-        if config.enabled && config.semantic.enabled {
-            collect_diagnostics(
-                config,
-                SlangDiagnosticSource::Semantic,
-                artifact.semantic_diagnostics_with_options(&warning_options),
-                &buffer_file_ids,
-                &mut diagnostics,
-            );
+        if let Some(&covering) = files.first() {
+            if config.enabled && config.parse.enabled {
+                collect_diagnostics(
+                    config,
+                    SlangDiagnosticSource::Parse,
+                    artifact.parse_diagnostics_with_options(&warning_options),
+                    &buffer_file_ids,
+                    covering,
+                    &mut diagnostics,
+                );
+            }
+            if config.enabled && config.semantic.enabled {
+                collect_diagnostics(
+                    config,
+                    SlangDiagnosticSource::Semantic,
+                    artifact.semantic_diagnostics_with_options(&warning_options),
+                    &buffer_file_ids,
+                    covering,
+                    &mut diagnostics,
+                );
+            }
         }
         diagnostics
     }
@@ -764,13 +772,18 @@ pub(crate) fn collect_diagnostics(
     source: SlangDiagnosticSource,
     raw: Vec<SyntaxDiagnostic>,
     buffer_file_ids: &FxHashMap<u32, FileId>,
+    covering_file: FileId,
     diagnostics: &mut Vec<CompilationDiagnostic>,
 ) {
-    diagnostics.extend(raw.into_iter().filter_map(|diagnostic| {
-        let file_id =
-            diagnostic.buffer_id.and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied())?;
+    diagnostics.extend(raw.into_iter().filter_map(|mut diagnostic| {
+        let mapped =
+            diagnostic.buffer_id.and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied());
+        if mapped.is_none() {
+            diagnostic.primary_range = None;
+            diagnostic.location = None;
+        }
         let diagnostic = apply_rules(config, source, diagnostic)?;
-        Some(CompilationDiagnostic { file_id, source, diagnostic })
+        Some(CompilationDiagnostic { file_id: mapped.unwrap_or(covering_file), source, diagnostic })
     }));
 }
 
@@ -1419,6 +1432,7 @@ mod tests {
             SlangDiagnosticSource::Parse,
             raw,
             &buffer_file_ids,
+            covering,
             &mut diagnostics,
         );
         assert_eq!(
