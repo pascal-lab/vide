@@ -231,7 +231,12 @@ impl CompilationArtifact {
     }
 
     pub fn query_members(&mut self, path: &str, offset: usize) -> QueryStatus<Vec<MemberInfo>> {
-        QueryStatus::Ready(Some(self.compilation.list_members(path, offset)))
+        match self.compilation.try_list_members(path, offset) {
+            Ok(members) => QueryStatus::Ready(Some(members)),
+            Err(_) => QueryStatus::Unavailable(Unavailable::PathNotInCompilation {
+                path: path.to_owned(),
+            }),
+        }
     }
 
     pub fn query_scope_members(&mut self, name: &str) -> QueryStatus<Vec<MemberInfo>> {

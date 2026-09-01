@@ -306,11 +306,19 @@ impl Compilation {
     }
 
     pub fn list_members(&mut self, path: &str, offset: usize) -> Vec<MemberInfo> {
-        ffi::list_members(self.raw_pin(), path, offset)
-            .unwrap_or_else(|err| panic!("{err}"))
+        self.try_list_members(path, offset).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    pub fn try_list_members(
+        &mut self,
+        path: &str,
+        offset: usize,
+    ) -> Result<Vec<MemberInfo>, String> {
+        Ok(ffi::list_members(self.raw_pin(), path, offset)
+            .map_err(|err| err.to_string())?
             .into_iter()
             .map(|row| MemberInfo { name: row.name, type_name: row.type_name })
-            .collect()
+            .collect())
     }
 
     pub fn list_scope_members(&mut self, name: &str) -> Vec<MemberInfo> {
