@@ -1552,6 +1552,16 @@ endmodule
     }
 
     #[test]
+    fn pathres_does_not_locate_packages() {
+        let src = include_str!("pathres.rs");
+        let locate = ["locate", "packages"].join("_");
+        assert!(
+            !src.contains(&locate),
+            "package imports look up DesignMap owners, not pathres {locate}"
+        );
+    }
+
+    #[test]
     fn resolve_path_does_not_use_a_top_level_module_as_hierarchical_root() {
         let db = db_with_root_text(
             r#"
