@@ -770,8 +770,28 @@ endmodule
 
         let top = crate::unit::test_module_owner(&db, "top");
 
-        assert_eq!(resolved_kind(&db, top, &["u", "sig"], NameContext::Value), DefKind::Net);
-        assert_eq!(resolved_kind(&db, top, &["arr", "sig"], NameContext::Value), DefKind::Net);
+        assert!(
+            resolve_path(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &path(&["u", "sig"]),
+                NameContext::Value
+            )
+            .is_unresolved(),
+            "instance members are the compilation, not pathres"
+        );
+        assert!(
+            resolve_path(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &path(&["arr", "sig"]),
+                NameContext::Value
+            )
+            .is_unresolved(),
+            "array instance members are the compilation, not pathres"
+        );
         assert_eq!(
             resolved_kind(&db, top, &["b", "local_sig"], NameContext::Value),
             DefKind::Variable
