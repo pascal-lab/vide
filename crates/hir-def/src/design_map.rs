@@ -448,3 +448,16 @@ fn imported_names(
     names.sort();
     names
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn reexports_look_up_map_owners_not_catalog_cu() {
+        let src = include_str!("design_map.rs");
+        let locate = ["locate_cu", "owners"].join("_");
+        assert!(
+            !src.contains(&locate),
+            "package reexports look up DesignMap owners, not pathres {locate}"
+        );
+    }
+}
