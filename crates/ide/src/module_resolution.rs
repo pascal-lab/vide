@@ -528,6 +528,16 @@ mod tests {
     }
 
     #[test]
+    fn module_resolution_does_not_locate_pathres_hierarchy_targets() {
+        let src = include_str!("module_resolution.rs");
+        let locate = ["locate_hierarchy", "targets"].join("_");
+        assert!(
+            !src.contains(&locate),
+            "module_resolution must not call pathres {locate}"
+        );
+    }
+
+    #[test]
     fn module_resolution_fixtures() {
         insta::glob!("module_resolution/fixtures/*.sv", |path| {
             let fixture = ResolutionFixture::read(path);

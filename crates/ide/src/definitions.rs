@@ -715,6 +715,47 @@ module top;
         );
     }
 
+    /// P5.2: named ports are compilation names. HIR must not bind them through
+    /// pathres `locate_hierarchy_targets` → other-file OwnerId.
+    #[test]
+    fn hir_does_not_bind_a_cross_file_named_port() {
+        let child = "module child(input wire clk);\nendmodule\n";
+        let top = "module top;\n  logic clk;\n  child u(.cl/*caret*/k(clk));\nendmodule\n";
+        let offset = TextSize::from(top.find("/*caret*/").unwrap() as u32);
+        let top = top.replace("/*caret*/", "");
+        let (host, files) = host_with_profile_files(&[("/child.sv", child), ("/top.sv", &top)]);
+        let child_id = files[0];
+        let top_id = files[1];
+        let db = host.ctx();
+        let sema = Semantics::<RootDb>::new_with_context(db.db, db.resolution());
+        let parsed = sema.parse_file(top_id);
+        let token = parsed
+            .compilation_unit()
+            .unwrap()
+            .syntax()
+            .token_at_offset(offset)
+            .pick_best_token(crate::token::navigation_precedence)
+            .unwrap();
+
+        let resolution = DefinitionClass::resolve(&db, top_id.into(), token);
+        assert!(
+            resolution.is_unresolved(),
+            "HIR must not bind a cross-file named port: {resolution:?}"
+        );
+
+        let nav = host
+            .make_analysis()
+            .goto_definition(crate::FilePosition { file_id: top_id, offset })
+            .unwrap()
+            .expect("compilation must still find clk");
+        assert!(
+            nav.info.iter().any(|target| {
+                target.file_id == child_id && target.name.as_deref() == Some("clk")
+            }),
+            "goto must land on child.sv clk via compilation: {nav:?}"
+        );
+    }
+
     #[test]
     fn unresolved_member_does_not_fall_back_to_lexical_name() {
         let text = r#"
