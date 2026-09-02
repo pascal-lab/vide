@@ -432,13 +432,14 @@ fn module_end_range(db: &RootDb, file_id: HirFileId, source: SourceAstId) -> Opt
 fn process_instantiation(
     db: &RootDb,
     context: &hir_def::pathres::ResolutionContext,
-    _module_id: OwnerId,
+    module_id: OwnerId,
     module: &Lowered<Body>,
     instantiation: &Instantiation,
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
+    let file = module_id.file(db).source_file_id(db)?;
     let target_module_id =
-        resolve_module_name(db, context, instantiation.module_name.as_ref()?).unique()?;
+        resolve_module_name(db, context, file, instantiation.module_name.as_ref()?).unique()?;
 
     let target_module = db.body_with_source_map(target_module_id);
     let target_body = db.body_with_source_map(target_module_id);

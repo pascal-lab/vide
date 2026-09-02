@@ -284,8 +284,8 @@ fn separated_list_index_at_offset<'a, T: AstNode<'a>>(
 fn resolve_target_module_id(
     db: &AnalysisContext<'_>,
     _sema: &Semantics<'_, RootDb>,
-    _from_file: vfs::FileId,
+    from_file: vfs::FileId,
     instantiation: ast::HierarchyInstantiation<'_>,
 ) -> Option<OwnerId> {
-    resolve_instantiation_target(db.db, db.resolution().as_ref(), instantiation).unique()
+    resolve_instantiation_target(db.db, db.resolution().as_ref(), from_file, instantiation).unique()
 }

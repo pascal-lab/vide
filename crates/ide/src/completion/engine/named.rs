@@ -30,9 +30,13 @@ pub(super) fn complete_named_port_names(
     else {
         return Vec::new();
     };
-    let Some(target_module_id) =
-        resolve_instantiation_target(db.db, db.resolution().as_ref(), instantiation).unique()
-    else {
+    let Some(target_module_id) = resolve_instantiation_target(
+        db.db,
+        db.resolution().as_ref(),
+        position.file_id,
+        instantiation,
+    )
+    .unique() else {
         return Vec::new();
     };
 
@@ -78,9 +82,13 @@ pub(super) fn complete_named_param_names(
     else {
         return Vec::new();
     };
-    let Some(target_module_id) =
-        resolve_instantiation_target(db.db, db.resolution().as_ref(), instantiation).unique()
-    else {
+    let Some(target_module_id) = resolve_instantiation_target(
+        db.db,
+        db.resolution().as_ref(),
+        position.file_id,
+        instantiation,
+    )
+    .unique() else {
         return Vec::new();
     };
 

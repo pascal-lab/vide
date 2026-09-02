@@ -21,49 +21,64 @@ use syntax::{
     SyntaxAncestors,
     ast::{self, AstNode},
 };
+use vfs::FileId;
 
 use crate::db::workspace_symbol_index_db::WorkspaceSymbolIndexDb;
 
 pub(crate) type ModuleResolution = Resolution<OwnerId>;
 
-fn module_resolution_from_context(
+/// This-file hierarchy targets, then paid-parse generated owners.
+/// Other-file source CUs are the compilation, not pathres catalog binding.
+fn module_resolution_in_file(
     db: &dyn HirDefDb,
     context: &hir_def::pathres::ResolutionContext,
+    file: FileId,
     name: &Ident,
 ) -> ModuleResolution {
-    Resolution::from_candidates(context.locate_hierarchy_targets(db, name))
+    let generated =
+        Resolution::from_candidates(context.locate_generated_hierarchy_targets(db, name));
+    if !generated.is_unresolved() {
+        return generated;
+    }
+    Resolution::from_candidates(hir_def::unit::cu_owners_named_in_file(db, file, name, |kind| {
+        kind.is_hierarchy_target()
+    }))
 }
 
 pub(crate) fn resolve_instantiation_target(
     db: &dyn WorkspaceSymbolIndexDb,
     context: &hir_def::pathres::ResolutionContext,
+    file: FileId,
     instantiation: ast::HierarchyInstantiation,
 ) -> ModuleResolution {
     let Some(name) = lower_ident_opt(instantiation.type_()) else {
         return ModuleResolution::Unresolved;
     };
-    resolve_module_name(db, context, &name)
+    resolve_module_name(db, context, file, &name)
 }
 
 pub(crate) fn resolve_hir_instantiation_target(
     db: &dyn WorkspaceSymbolIndexDb,
     context: &hir_def::pathres::ResolutionContext,
+    file: FileId,
     instantiation: &Instantiation,
 ) -> Option<OwnerId> {
-    resolve_module_name(db, context, instantiation.module_name.as_ref()?).unique()
+    resolve_module_name(db, context, file, instantiation.module_name.as_ref()?).unique()
 }
 
 pub(crate) fn resolve_module_name(
     db: &dyn WorkspaceSymbolIndexDb,
     context: &hir_def::pathres::ResolutionContext,
+    file: FileId,
     name: &Ident,
 ) -> ModuleResolution {
-    module_resolution_from_context(db, context, name)
+    module_resolution_in_file(db, context, file, name)
 }
 
 pub(crate) fn resolve_named_port_connection(
     db: &dyn WorkspaceSymbolIndexDb,
     context: &hir_def::pathres::ResolutionContext,
+    file: FileId,
     conn: ast::NamedPortConnection,
 ) -> Resolution<DefId> {
     let Some(name) = lower_ident_opt(conn.name()) else {
@@ -74,12 +89,13 @@ pub(crate) fn resolve_named_port_connection(
     else {
         return Resolution::Unresolved;
     };
-    resolve_named_port_in_instantiation(db, context, instantiation, &name)
+    resolve_named_port_in_instantiation(db, context, file, instantiation, &name)
 }
 
 pub(crate) fn resolve_named_param_assignment(
     db: &dyn WorkspaceSymbolIndexDb,
     context: &hir_def::pathres::ResolutionContext,
+    file: FileId,
     assign: ast::NamedParamAssignment,
 ) -> Resolution<DefId> {
     let Some(name) = lower_ident_opt(assign.name()) else {
@@ -90,26 +106,28 @@ pub(crate) fn resolve_named_param_assignment(
     else {
         return Resolution::Unresolved;
     };
-    resolve_named_param_in_instantiation(db, context, instantiation, &name)
+    resolve_named_param_in_instantiation(db, context, file, instantiation, &name)
 }
 
 fn resolve_named_port_in_instantiation(
     db: &dyn WorkspaceSymbolIndexDb,
     context: &hir_def::pathres::ResolutionContext,
+    file: FileId,
     instantiation: ast::HierarchyInstantiation,
     port_name: &Ident,
 ) -> Resolution<DefId> {
-    resolve_instantiation_target(db, context, instantiation)
+    resolve_instantiation_target(db, context, file, instantiation)
         .and_then(|module_id| resolve_named_port_in_module(db, module_id, port_name))
 }
 
 fn resolve_named_param_in_instantiation(
     db: &dyn WorkspaceSymbolIndexDb,
     context: &hir_def::pathres::ResolutionContext,
+    file: FileId,
     instantiation: ast::HierarchyInstantiation,
     param_name: &Ident,
 ) -> Resolution<DefId> {
-    resolve_instantiation_target(db, context, instantiation)
+    resolve_instantiation_target(db, context, file, instantiation)
         .and_then(|module_id| resolve_named_param_in_module(db, module_id, param_name))
 }
 
@@ -415,8 +433,12 @@ mod tests {
 
         match fixture.query {
             Query::Module(module) => {
-                let result =
-                    resolve_module_name(&db, &hir_def::unit::test_resolution(&db), &module);
+                let result = resolve_module_name(
+                    &db,
+                    &hir_def::unit::test_resolution(&db),
+                    fixture.focus,
+                    &module,
+                );
                 format_module_resolution(&db, &fixture.files, result)
             }
             Query::NamedPort => {
@@ -429,6 +451,7 @@ mod tests {
                 let res = resolve_named_port_connection(
                     &db,
                     &hir_def::unit::test_resolution(&db),
+                    fixture.focus,
                     port_conn,
                 );
                 format_def_resolution(&db, &fixture.files, &res, DefKind::Port, "AnsiPort")
@@ -443,6 +466,7 @@ mod tests {
                 let res = resolve_named_param_assignment(
                     &db,
                     &hir_def::unit::test_resolution(&db),
+                    fixture.focus,
                     param_assign,
                 );
                 format_def_resolution(&db, &fixture.files, &res, DefKind::Param, "ParamDecl")
@@ -531,10 +555,7 @@ mod tests {
     fn module_resolution_does_not_locate_pathres_hierarchy_targets() {
         let src = include_str!("module_resolution.rs");
         let locate = ["locate_hierarchy", "targets"].join("_");
-        assert!(
-            !src.contains(&locate),
-            "module_resolution must not call pathres {locate}"
-        );
+        assert!(!src.contains(&locate), "module_resolution must not call pathres {locate}");
     }
 
     #[test]

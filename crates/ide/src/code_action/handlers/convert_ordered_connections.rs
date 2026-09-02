@@ -58,6 +58,7 @@ pub(super) fn convert_ordered_ports(
     let target_module_id = resolve_hir_instantiation_target(
         db,
         ctx.sema().resolution_context().as_ref(),
+        ctx.file_id(),
         instantiation,
     )?;
     let target_module = db.body_with_source_map(target_module_id);
@@ -121,6 +122,7 @@ pub(super) fn convert_ordered_params(
     let target_module_id = resolve_hir_instantiation_target(
         db,
         ctx.sema().resolution_context().as_ref(),
+        ctx.file_id(),
         instantiation,
     )?;
     let target_body = db.body_with_source_map(target_module_id);

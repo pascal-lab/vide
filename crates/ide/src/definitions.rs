@@ -86,12 +86,17 @@ impl DefinitionClass {
 
         match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
-                resolve_named_param_assignment(db, &context, it)
+                let Some(file) = file_id.source_file_id(db) else {
+                    return Resolution::Unresolved;
+                };
+                resolve_named_param_assignment(db, &context, file, it)
                     .map(DefinitionClass::Definition)
             },
             ast::NamedPortConnection[it] if it.name() == Some(tok) => {
-                let port =
-                    resolve_named_port_connection(db, &context, it);
+                let Some(file) = file_id.source_file_id(db) else {
+                    return Resolution::Unresolved;
+                };
+                let port = resolve_named_port_connection(db, &context, file, it);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
                     let local = nameres_ident(&sema, file_id, tp, NameContext::Value, container);
@@ -716,7 +721,7 @@ module top;
     }
 
     /// P5.2: named ports are compilation names. HIR must not bind them through
-    /// pathres `locate_hierarchy_targets` → other-file OwnerId.
+    /// pathres catalog hierarchy location → other-file OwnerId.
     #[test]
     fn hir_does_not_bind_a_cross_file_named_port() {
         let child = "module child(input wire clk);\nendmodule\n";

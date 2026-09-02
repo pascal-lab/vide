@@ -13,7 +13,7 @@ use crate::{
     module::instantiation::InstanceId,
     owner::{OwnerId, OwnerKind},
     symbol::{DefKind, NameContext, Resolution, ScopeData},
-    unit::{locate_cu_owners, locate_cu_owners_matching},
+    unit::locate_cu_owners,
 };
 
 /// This-file lexical name-resolution inputs.
@@ -60,12 +60,6 @@ impl ResolutionContext {
 
     pub fn design_map(&self, _db: &dyn HirDefDb) -> Arc<DesignMap> {
         self.design_map.clone()
-    }
-
-    pub fn locate_hierarchy_targets(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
-        locate_cu_owners_matching(db, &self.locator, &self.paid_files, name, |kind| {
-            kind.is_hierarchy_target()
-        })
     }
 
     /// Paid-parse macro-generated hierarchy targets. Not catalog source files.

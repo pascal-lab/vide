@@ -532,8 +532,8 @@ fn render_instance_signature(
     let module_name = instantiation.module_name.as_ref()?;
 
     let mut signature = format!("instance {instance_name} of {module_name}");
-    if instance_id.cont_id.file(db).source_file_id(db).is_some()
-        && let Some(target_module_id) = resolve_module_name(db, context, module_name).unique()
+    if let Some(file) = instance_id.cont_id.file(db).source_file_id(db)
+        && let Some(target_module_id) = resolve_module_name(db, context, file, module_name).unique()
         && let Some(module_signature) = render_module_signature(db, target_module_id)
     {
         signature.push_str("\n\n");

@@ -527,7 +527,7 @@ fn module_instantiation_resolution_diagnostics(
                 }
             }
 
-            match resolve_module_name(db, context, module_name) {
+            match resolve_module_name(db, context, file_id, module_name) {
                 ModuleResolution::Ambiguous(candidates) => {
                     let (severity, message, message_key, message_args) =
                         ambiguous_module_instantiation_diagnostic(module_name, candidates.len());
@@ -751,18 +751,12 @@ mod tests {
     }
 
     #[test]
-    fn best_effort_ambiguous_module_instantiation_reports_vide_information() {
-        let db = db_with_files_in_role(
-            &[
-                ("/project/a/child.sv", "module child; endmodule\n"),
-                ("/project/b/child.sv", "module child; endmodule\n"),
-                ("/project/top.sv", "module top; child u(); endmodule\n"),
-            ],
-            SourceRootRole::BestEffortIndex,
-            false,
-        );
+    fn this_file_duplicate_module_instantiation_reports_vide_warning() {
+        let top =
+            "module child; endmodule\nmodule top; child u(); endmodule\nmodule child; endmodule\n";
+        let db = db_with_files(&[("/project/top.sv", top)], false);
 
-        let diagnostics = diagnostics(&db, FileId::from_raw(2));
+        let diagnostics = diagnostics(&db, FileId::from_raw(0));
 
         assert!(
             diagnostics.iter().any(|diag| {
@@ -771,36 +765,12 @@ mod tests {
                     && diag.severity == syntax::diagnostics::DiagnosticSeverity::Warning
                     && diag.message.contains("matches 2 module definitions")
             }),
-            "expected vide ambiguous module warning: {diagnostics:?}"
+            "expected vide this-file ambiguous module warning: {diagnostics:?}"
         );
     }
 
     #[test]
-    fn best_effort_duplicate_module_instantiation_reports_vide_warning() {
-        let db = db_with_files_in_role(
-            &[
-                ("/project/a/child.sv", "module child; endmodule\n"),
-                ("/project/a/top.sv", "module top; child u(); endmodule\n"),
-                ("/project/b/child.sv", "module child; endmodule\n"),
-            ],
-            SourceRootRole::BestEffortIndex,
-            false,
-        );
-
-        let diagnostics = diagnostics(&db, FileId::from_raw(1));
-
-        assert!(
-            diagnostics.iter().any(|diag| {
-                diag.source == DiagnosticSource::Vide
-                    && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
-                    && diag.severity == syntax::diagnostics::DiagnosticSeverity::Warning
-            }),
-            "duplicates stay ambiguous on the graph: {diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn strict_ambiguous_module_instantiation_reports_vide_warning() {
+    fn cross_file_duplicate_modules_are_not_vide_ambiguous() {
         let db = db_with_files(
             &[
                 ("/project/a/child.sv", "module child; endmodule\n"),
@@ -813,29 +783,23 @@ mod tests {
         let diagnostics = diagnostics(&db, FileId::from_raw(2));
 
         assert!(
-            diagnostics.iter().any(|diag| {
-                diag.source == DiagnosticSource::Vide
-                    && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
-                    && diag.severity == syntax::diagnostics::DiagnosticSeverity::Warning
-                    && diag.message.contains("matches 2 module definitions")
+            diagnostics.iter().all(|diag| {
+                diag.source != DiagnosticSource::Vide
+                    || diag.name != AMBIGUOUS_MODULE_INSTANTIATION.name
             }),
-            "expected strict ambiguity warning: {diagnostics:?}"
+            "cross-file hierarchy is the compilation, not Vide catalog binding: {diagnostics:?}"
         );
     }
 
     #[test]
     fn preproc_macro_generated_instantiation_diagnostic_uses_macro_body_target() {
-        let top = "`define MAKE child u();\nmodule top;\n  `MAKE\nendmodule\n";
-        let db = db_with_files(
-            &[
-                ("/project/a/child.sv", "module child; endmodule\n"),
-                ("/project/b/child.sv", "module child; endmodule\n"),
-                ("/project/top.sv", top),
-            ],
-            false,
-        );
+        let top = "`define MAKE child u();\n\
+            module child; endmodule\n\
+            module child; endmodule\n\
+            module top;\n  `MAKE\nendmodule\n";
+        let db = db_with_files(&[("/project/top.sv", top)], false);
 
-        let diagnostics = diagnostics(&db, FileId::from_raw(2));
+        let diagnostics = diagnostics(&db, FileId::from_raw(0));
         let diagnostic = diagnostics
             .iter()
             .find(|diag| {
@@ -846,7 +810,7 @@ mod tests {
                 panic!("expected generated instantiation diagnostic: {diagnostics:?}")
             });
 
-        assert_eq!(diagnostic.file_id, FileId::from_raw(2));
+        assert_eq!(diagnostic.file_id, FileId::from_raw(0));
         assert_eq!(diagnostic.range, range_of(top, "child"));
         assert_ne!(diagnostic.range, range_of(top, "`MAKE"));
     }
@@ -900,21 +864,16 @@ mod tests {
 
     #[test]
     fn compilation_profile_diagnostics_include_vide_diagnostics() {
-        let mut db = db_with_files(
-            &[
-                ("/project/a/child.sv", "module child; endmodule\n"),
-                ("/project/a/top.sv", "module top; child u(); endmodule\n"),
-                ("/project/b/child.sv", "module child; endmodule\n"),
-            ],
-            true,
-        );
+        let top =
+            "module child; endmodule\nmodule top; child u(); endmodule\nmodule child; endmodule\n";
+        let mut db = db_with_files(&[("/project/top.sv", top)], true);
         disable_semantic_diagnostics(&mut db);
 
         let diagnostics = compilation_profile_diagnostics(&db, CompilationProfileId(0));
 
         assert!(
             diagnostics.iter().any(|diagnostic| {
-                diagnostic.file_id == FileId::from_raw(1)
+                diagnostic.file_id == FileId::from_raw(0)
                     && diagnostic.source == DiagnosticSource::Vide
                     && diagnostic.name == AMBIGUOUS_MODULE_INSTANTIATION.name
             }),
@@ -1541,13 +1500,12 @@ endmodule
         };
 
         assert!(to_text_range(&diagnostic).is_none());
-        let published = materialize_compiler_diagnostics(vec![
-            preproc_expand::db::CompilationDiagnostic {
+        let published =
+            materialize_compiler_diagnostics(vec![preproc_expand::db::CompilationDiagnostic {
                 file_id: FileId::from_raw(0),
                 source: SlangDiagnosticSource::Parse,
                 diagnostic,
-            },
-        ]);
+            }]);
         assert_eq!(
             published.len(),
             1,
