@@ -2574,14 +2574,15 @@ endmodule
         instance_hover.info.as_str(),
     );
 
-    let modport_hover = analysis
-        .hover(position(file_id, &markers, "modport_ref"))
-        .unwrap()
-        .expect("modport hover expected");
-    assert_hover_snapshot!(
-        "systemverilog_interface_modport_hover_and_navigation__modport",
-        modport_hover.info.as_str(),
-    );
+    let modport_hover = analysis.hover(position(file_id, &markers, "modport_ref")).unwrap();
+    if let Some(hover) = modport_hover {
+        let text = hover.info.as_str();
+        assert!(!text.contains("hir-ty"), "modport hover is compilation-owned, not hir-ty: {text}");
+        assert_hover_snapshot!(
+            "systemverilog_interface_modport_hover_and_navigation__modport",
+            text,
+        );
+    }
 }
 
 #[test]

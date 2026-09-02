@@ -1,7 +1,6 @@
 use preproc_expand::file::HirFileId;
 use smallvec::SmallVec;
 use triomphe::Arc;
-use utils::get::GetRef;
 use vfs::FileId;
 
 use crate::{
@@ -10,8 +9,7 @@ use crate::{
     db::HirDefDb,
     def_id::DefId,
     design_map::DesignMap,
-    module::instantiation::InstanceId,
-    owner::{OwnerId, OwnerKind},
+    owner::OwnerId,
     symbol::{DefKind, NameContext, Resolution, ScopeData},
 };
 
@@ -375,37 +373,25 @@ pub fn resolve_path_at(
 
 pub fn resolve_child_name(
     db: &dyn HirDefDb,
-    context: &ResolutionContext,
+    _context: &ResolutionContext,
     parent: &Resolution<DefId>,
     ident: &Ident,
     ctx: NameContext,
 ) -> Resolution<DefId> {
     parent.and_then(|def_id| {
-        let Some(scope_id) = descend_scope(db, context, def_id) else {
+        let Some(scope_id) = descend_scope(db, def_id) else {
             return Resolution::Unresolved;
         };
         db.scope(scope_id).lookup(ctx, ident)
     })
 }
-pub fn descend_scope(
-    db: &dyn HirDefDb,
-    context: &ResolutionContext,
-    def_id: DefId,
-) -> Option<OwnerId> {
+pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<OwnerId> {
     let origin = def_id.primary_origin(db);
     match def_id.kind(db) {
-        DefKind::Module | DefKind::Interface | DefKind::Program | DefKind::Package => {
-            origin.as_module(db)
-        }
-        DefKind::ClockingBlock
-        | DefKind::Checker
-        | DefKind::Covergroup
-        | DefKind::Block
-        | DefKind::GenerateBlock => Some(definition_scope_owner(db, origin)),
-        DefKind::Instance => {
-            let instance = origin.as_instance(db)?;
-            let target = instance_target_def_id(db, context, instance.cont_id, instance.value)?;
-            descend_scope(db, context, target)
+        // This-file nested scopes. Instance / CU / package members are the
+        // compilation, not pathres hierarchy.
+        DefKind::ClockingBlock | DefKind::Block | DefKind::GenerateBlock => {
+            Some(definition_scope_owner(db, origin))
         }
         _ => None,
     }
@@ -413,62 +399,6 @@ pub fn descend_scope(
 
 fn definition_scope_owner(db: &dyn HirDefDb, origin: crate::symbol::DefOrigin) -> OwnerId {
     origin.loc(db).clone().owner(db)
-}
-
-pub fn instance_target_def_id(
-    db: &dyn HirDefDb,
-    _context: &ResolutionContext,
-    module_id: OwnerId,
-    instance_id: InstanceId,
-) -> Option<DefId> {
-    let module = db.body(module_id);
-    let instance = module.get(instance_id);
-    let instantiation = module.get(instance.parent);
-    let module_name = instantiation.module_name.as_ref()?;
-    let local = local_instantiable_owner(db, module_id, module_name);
-    if !local.is_unresolved() {
-        return local.unique().map(|owner| instantiable_def_id(db, owner));
-    }
-    let file = module_id.file(db).as_file()?;
-    Resolution::from_candidates(crate::unit::cu_owners_named_in_file(
-        db,
-        file,
-        module_name,
-        |kind| kind.is_hierarchy_target() || matches!(kind, design_graph::UnitKind::Checker),
-    ))
-    .unique()
-    .map(|owner| instantiable_def_id(db, owner))
-}
-
-fn local_instantiable_owner(
-    db: &dyn HirDefDb,
-    scope: OwnerId,
-    name: &Ident,
-) -> Resolution<OwnerId> {
-    Resolution::from_candidates(
-        db.owner_table(scope.file(db))
-            .owners()
-            .iter()
-            .filter(|owner| {
-                owner.parent == Some(scope) && owner.name == *name && is_local_instantiable(owner)
-            })
-            .map(|owner| owner.id),
-    )
-}
-
-fn is_local_instantiable(owner: &crate::owner::OwnerData) -> bool {
-    match owner.kind {
-        OwnerKind::Checker | OwnerKind::Covergroup => true,
-        OwnerKind::Module => owner.module_kind.is_some_and(|kind| kind.is_instantiable()),
-        _ => false,
-    }
-}
-
-fn instantiable_def_id(db: &dyn HirDefDb, owner: OwnerId) -> DefId {
-    let is_instantiable = matches!(owner.kind(db), OwnerKind::Checker | OwnerKind::Covergroup)
-        || owner.module_kind(db).is_some_and(|kind| kind.is_instantiable());
-    assert!(is_instantiable, "owner must be an instantiable design unit: {owner:?}");
-    DefId::from_owner(db, owner).expect("instantiable owner must have a definition")
 }
 
 /// Point-of-reference filter for one name lookup (IEEE 1800-2017 26.3).
@@ -829,18 +759,20 @@ endmodule
                 &path(&["u", "only_left"]),
                 NameContext::Value
             )
-            .is_unresolved()
+            .is_unresolved(),
+            "instance members are the compilation, not pathres"
         );
-        let Resolution::Ambiguous(shared) = resolve_path(
-            &db,
-            &crate::unit::test_resolution(&db),
-            top,
-            &path(&["u", "shared"]),
-            NameContext::Value,
-        ) else {
-            panic!("members from ambiguous parents should remain ambiguous");
-        };
-        assert_eq!(shared.len(), 2);
+        assert!(
+            resolve_path(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &path(&["u", "shared"]),
+                NameContext::Value
+            )
+            .is_unresolved(),
+            "instance members are the compilation, not pathres"
+        );
     }
 
     #[test]
@@ -1643,18 +1575,28 @@ endmodule
 
         let top = crate::unit::test_module_owner(&db, "top");
 
-        let res = resolve_path(
-            &db,
-            &crate::unit::test_resolution(&db),
-            top,
-            &path(&["u_if", "host"]),
-            NameContext::Value,
+        assert!(
+            resolve_path(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &path(&["u_if", "host"]),
+                NameContext::Value,
+            )
+            .is_unresolved(),
+            "interface instance members are the compilation, not pathres"
         );
-
-        let def = res.unique().expect("modport should produce a unique definition");
-        assert_eq!(def.name(&db).as_deref(), Some("host"));
-        assert_eq!(def.kind(&db), DefKind::Modport);
-        assert_eq!(resolved_kind(&db, top, &["u_if", "clk"], NameContext::Value), DefKind::Net);
+        assert!(
+            resolve_path(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &path(&["u_if", "clk"]),
+                NameContext::Value,
+            )
+            .is_unresolved(),
+            "interface instance members are the compilation, not pathres"
+        );
     }
 
     #[test]
@@ -1693,11 +1635,28 @@ endmodule
 
         let top = crate::unit::test_module_owner(&db, "top");
 
-        assert_eq!(
-            resolved_kind(&db, top, &["u", "clk"], NameContext::Value),
-            DefKind::CheckerPort
+        assert!(
+            resolve_path(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &path(&["u", "clk"]),
+                NameContext::Value,
+            )
+            .is_unresolved(),
+            "checker instance members are the compilation, not pathres"
         );
-        assert_eq!(resolved_kind(&db, top, &["u", "sig"], NameContext::Value), DefKind::Variable);
+        assert!(
+            resolve_path(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &path(&["u", "sig"]),
+                NameContext::Value,
+            )
+            .is_unresolved(),
+            "checker instance members are the compilation, not pathres"
+        );
     }
 
     #[test]
@@ -1717,7 +1676,27 @@ endmodule
 
         let top = crate::unit::test_module_owner(&db, "top");
 
-        assert_eq!(resolved_kind(&db, top, &["u", "cp"], NameContext::Value), DefKind::Coverpoint);
-        assert_eq!(resolved_kind(&db, top, &["u", "cx"], NameContext::Value), DefKind::Cross);
+        assert!(
+            resolve_path(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &path(&["u", "cp"]),
+                NameContext::Value,
+            )
+            .is_unresolved(),
+            "covergroup instance members are the compilation, not pathres"
+        );
+        assert!(
+            resolve_path(
+                &db,
+                &crate::unit::test_resolution(&db),
+                top,
+                &path(&["u", "cx"]),
+                NameContext::Value,
+            )
+            .is_unresolved(),
+            "covergroup instance members are the compilation, not pathres"
+        );
     }
 }

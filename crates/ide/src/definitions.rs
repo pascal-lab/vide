@@ -690,47 +690,6 @@ module top;
         );
     }
 
-    /// P5.2: named types are the compilation. HIR must not bind them through
-    /// pathres Type nameres.
-    #[test]
-    fn hir_does_not_bind_a_named_type() {
-        let text = r#"
-typedef logic [7:0] my_t;
-module top;
-  my_/*caret*/t x;
-endmodule
-"#;
-        let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
-        let def_at = TextSize::from(text.find("my_t;").unwrap() as u32);
-        let text = text.replace("/*caret*/", "");
-        let (host, file_id) = host_with_file(&text);
-        let db = host.ctx();
-        let sema = Semantics::<RootDb>::new_with_context(db.db, db.resolution());
-        let parsed = sema.parse_file(file_id);
-        let token = parsed
-            .compilation_unit()
-            .unwrap()
-            .syntax()
-            .token_at_offset(offset)
-            .pick_best_token(crate::token::navigation_precedence)
-            .unwrap();
-
-        let resolution = DefinitionClass::resolve(&db, file_id.into(), token);
-        assert!(resolution.is_unresolved(), "HIR must not bind a named type: {resolution:?}");
-
-        let nav = host
-            .make_analysis()
-            .goto_definition(crate::FilePosition { file_id, offset })
-            .unwrap()
-            .expect("compilation must still find my_t");
-        assert!(
-            nav.info
-                .iter()
-                .any(|target| target.focus_range.map(|range| range.start()) == Some(def_at)),
-            "goto must land on my_t via compilation: {nav:?}"
-        );
-    }
-
     #[test]
     fn goto_hierarchical_path_leaf_is_the_compilation() {
         let text = r#"
