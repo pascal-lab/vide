@@ -13,7 +13,6 @@ use crate::{
     module::instantiation::InstanceId,
     owner::{OwnerId, OwnerKind},
     symbol::{DefKind, NameContext, Resolution, ScopeData},
-    unit::locate_cu_owners,
 };
 
 /// This-file lexical name-resolution inputs.
@@ -71,10 +70,6 @@ impl ResolutionContext {
         crate::unit::locate_generated_cu_owners(db, &self.paid_files, name, |kind| {
             kind.is_hierarchy_target()
         })
-    }
-
-    pub fn locate_packages(&self, db: &dyn HirDefDb, name: &str) -> Vec<OwnerId> {
-        locate_cu_owners(db, &self.locator, &self.paid_files, name, design_graph::UnitKind::Package)
     }
 }
 
@@ -503,7 +498,6 @@ impl AtFilter<'_> {
 /// Collects import candidates for one scope, applying the point filter.
 struct ImportCollector<'a> {
     db: &'a dyn HirDefDb,
-    context: &'a ResolutionContext,
     design_map: &'a crate::design_map::DesignMap,
     scope: &'a ScopeData,
     defs: SmallVec<[DefId; 3]>,
@@ -524,10 +518,8 @@ impl ImportCollector<'_> {
             {
                 continue;
             }
-            for def_id in self
-                .design_map
-                .resolve_import(self.db, self.context, import, ident, ctx)
-                .into_candidates()
+            for def_id in
+                self.design_map.resolve_import(self.db, import, ident, ctx).into_candidates()
             {
                 if !self.defs.contains(&def_id) {
                     self.defs.push(def_id);
@@ -551,7 +543,6 @@ fn resolve_scope_imports(
     let design_map = context.design_map(db);
     let mut collector = ImportCollector {
         db,
-        context,
         design_map: design_map.as_ref(),
         scope,
         defs: SmallVec::new(),
@@ -602,7 +593,6 @@ pub(crate) fn resolve_wildcard_at(
         let design_map = context.design_map(db);
         let mut collector = ImportCollector {
             db,
-            context,
             design_map: design_map.as_ref(),
             scope: scope.as_ref(),
             defs: SmallVec::new(),
@@ -1552,7 +1542,7 @@ endmodule
     }
 
     #[test]
-    fn pathres_does_not_locate_packages() {
+    fn pathres_has_no_package_name_locator() {
         let src = include_str!("pathres.rs");
         let locate = ["locate", "packages"].join("_");
         assert!(

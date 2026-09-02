@@ -245,10 +245,11 @@ impl DesignMap {
     }
 
     /// Resolve one package import while preserving ambiguous package parents.
+    ///
+    /// Packages are this export map's owners. pathres does not locate them.
     pub fn resolve_import(
         &self,
         db: &dyn HirDefDb,
-        context: &crate::pathres::ResolutionContext,
         import: &Import,
         ident: &SmolStr,
         ctx: NameContext,
@@ -259,13 +260,21 @@ impl DesignMap {
             return Resolution::Unresolved;
         }
 
-        let packages = Resolution::from_candidates(context.locate_packages(db, &import.package));
+        let packages = Resolution::from_candidates(self.packages_named(db, &import.package));
         packages.and_then(|package| {
             let Some(exports) = self.package_exports.get(&package) else {
                 return Resolution::Unresolved;
             };
             exports.lookup(ctx, ident)
         })
+    }
+
+    fn packages_named(&self, db: &dyn HirDefDb, name: &Ident) -> Vec<OwnerId> {
+        self.package_exports
+            .keys()
+            .copied()
+            .filter(|owner| owner.name(db).as_deref() == Some(name.as_str()))
+            .collect()
     }
 }
 
