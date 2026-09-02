@@ -270,11 +270,7 @@ impl DesignMap {
     }
 
     fn packages_named(&self, db: &dyn HirDefDb, name: &Ident) -> Vec<OwnerId> {
-        self.package_exports
-            .keys()
-            .copied()
-            .filter(|owner| owner.name(db).as_deref() == Some(name.as_str()))
-            .collect()
+        owners_named(db, self.package_exports.keys(), name)
     }
 }
 
@@ -366,13 +362,8 @@ fn compute_package_export_closure(
                 .clone();
 
             let mut add_reexport = |source_package: &Ident, item: Option<&Ident>| {
-                let source_owners = Resolution::from_candidates(crate::unit::locate_cu_owners(
-                    db,
-                    graph,
-                    &[],
-                    source_package,
-                    design_graph::UnitKind::Package,
-                ));
+                let source_owners =
+                    Resolution::from_candidates(owners_named(db, packages.iter(), source_package));
                 let names = item
                     .map(|item| vec![item.clone()])
                     .unwrap_or_else(|| imported_names(&exports, source_owners.clone()));
@@ -415,6 +406,14 @@ fn compute_package_export_closure(
             .map(|(owner, exports)| (owner, Arc::new(exports)))
             .collect(),
     })
+}
+
+fn owners_named<'a>(
+    db: &dyn HirDefDb,
+    owners: impl IntoIterator<Item = &'a OwnerId>,
+    name: &str,
+) -> Vec<OwnerId> {
+    owners.into_iter().copied().filter(|owner| owner.name(db).as_deref() == Some(name)).collect()
 }
 
 fn resolve_package_member(
