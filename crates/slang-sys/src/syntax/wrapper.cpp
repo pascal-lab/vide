@@ -279,7 +279,7 @@ namespace slang_sys::syntax::tree {
                 options
             );
         }
-        return wrap_syntax_tree(std::move(tree), std::move(session), "Slang failed to create syntax tree");
+        return wrap_syntax_tree(std::move(tree), session, "Slang failed to create syntax tree");
     }
 
     std::shared_ptr<SyntaxTree> parse_syntax_tree_from_buffer_with_session(
@@ -310,7 +310,7 @@ namespace slang_sys::syntax::tree {
         auto tree = ::slang::syntax::SyntaxTree::fromBuffer(
             buffer, session->source_manager, options);
         return wrap_syntax_tree(
-            std::move(tree), std::move(session), "Slang failed to create syntax tree from buffer");
+            std::move(tree), session, "Slang failed to create syntax tree from buffer");
     }
 
     const SyntaxNode *syntax_tree_root(const SyntaxTree &tree) {
@@ -425,7 +425,7 @@ namespace slang_sys::syntax::tree {
         );
         return wrap_syntax_tree(
             std::move(tree),
-            std::move(session),
+            session,
             "Slang failed to create library map syntax tree"
         );
     }
@@ -456,7 +456,7 @@ namespace slang_sys::syntax::tree {
             buffer, session->source_manager, options);
         return wrap_syntax_tree(
             std::move(tree),
-            std::move(session),
+            session,
             "Slang failed to create library map syntax tree from buffer"
         );
     }
