@@ -73,7 +73,17 @@ export function getServerStatusPresentation(
   }
 }
 
-export type ProjectStatusState = 'loading' | 'loaded' | 'none' | 'error';
+export type ProjectStatusState =
+  | 'loading'
+  | 'loaded'
+  | 'selectionRequired'
+  | 'none'
+  | 'error';
+
+export interface FuseSocCoreSelection {
+  workspaceUri: string;
+  coreUris: string[];
+}
 
 export interface ProjectStatus {
   state: ProjectStatusState;
@@ -81,6 +91,7 @@ export interface ProjectStatus {
   unconfiguredRootUris: string[];
   workspaceCount: number;
   errors: string[];
+  fusesocCoreSelections?: FuseSocCoreSelection[];
   message?: string;
 }
 
@@ -104,6 +115,7 @@ export function asProjectStatus(value: unknown): ProjectStatus | undefined {
   if (
     state !== 'loading' &&
     state !== 'loaded' &&
+    state !== 'selectionRequired' &&
     state !== 'none' &&
     state !== 'error'
   ) {
@@ -113,19 +125,21 @@ export function asProjectStatus(value: unknown): ProjectStatus | undefined {
   const manifestUris = asStringArray(params.manifestUris);
   const unconfiguredRootUris = asStringArray(params.unconfiguredRootUris);
   const errors = asStringArray(params.errors);
+  const fusesocCoreSelections = asFuseSocCoreSelections(params.fusesocCoreSelections);
   const workspaceCount = params.workspaceCount;
   const message = params.message;
   if (
     !manifestUris ||
     !unconfiguredRootUris ||
     !errors ||
+    (params.fusesocCoreSelections !== undefined && !fusesocCoreSelections) ||
     typeof workspaceCount !== 'number' ||
     (message !== undefined && typeof message !== 'string')
   ) {
     return undefined;
   }
 
-  return {
+  const status: ProjectStatus = {
     state,
     manifestUris,
     unconfiguredRootUris,
@@ -133,6 +147,10 @@ export function asProjectStatus(value: unknown): ProjectStatus | undefined {
     errors,
     message,
   };
+  if (fusesocCoreSelections) {
+    status.fusesocCoreSelections = fusesocCoreSelections;
+  }
+  return status;
 }
 
 export type ProjectStatusPresentation = LanguageStatusPresentation;
@@ -142,6 +160,7 @@ export interface ProjectStatusMessages {
   loadingDetail: string;
   loadedOneManifestDetail: string;
   loadedManyManifestsDetail: (count: number) => string;
+  selectionRequiredDetail: string;
   noManifestDetail: string;
   errorDetail: string;
 }
@@ -151,6 +170,7 @@ export const defaultProjectStatusMessages: ProjectStatusMessages = {
   loadingDetail: 'Loading project configuration',
   loadedOneManifestDetail: 'Project manifest loaded',
   loadedManyManifestsDetail: (count) => `${count} project manifests loaded`,
+  selectionRequiredDetail: 'Select the FuseSoC project core and target',
   noManifestDetail: 'No project manifest',
   errorDetail: 'Project configuration failed',
 };
@@ -175,6 +195,13 @@ export function getProjectStatusPresentation(
             ? messages.loadedOneManifestDetail
             : messages.loadedManyManifestsDetail(status.manifestUris.length),
         severity: 'information',
+        busy: false,
+      };
+    case 'selectionRequired':
+      return {
+        text: messages.text,
+        detail: messages.selectionRequiredDetail,
+        severity: 'warning',
         busy: false,
       };
     case 'none':
@@ -256,4 +283,28 @@ function asStringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')
     ? value
     : undefined;
+}
+
+function asFuseSocCoreSelections(value: unknown): FuseSocCoreSelection[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const selections: FuseSocCoreSelection[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') {
+      return undefined;
+    }
+    const selection = item as Record<string, unknown>;
+    const workspaceUri = selection.workspaceUri;
+    const coreUris = asStringArray(selection.coreUris);
+    if (typeof workspaceUri !== 'string' || !coreUris) {
+      return undefined;
+    }
+    selections.push({ workspaceUri, coreUris });
+  }
+  return selections;
 }

@@ -123,6 +123,37 @@ struct TomlManifestSchema {
         )
     )]
     pub exclude: Vec<String>,
+    /// FuseSoC CAPI2 integration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fusesoc: Option<FuseSocTomlConfig>,
+}
+
+/// Configuration for FuseSoC .core loading from a vide.toml `[fusesoc]`
+/// section.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "manifest-schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct FuseSocTomlConfig {
+    /// `.core` file name (relative to the workspace root) or VLNV string.
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(description = "Core file name (relative to workspace root) or VLNV string")
+    )]
+    pub core: String,
+    /// Target name to select. Vide requires this to be explicitly selected.
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(description = "Target name to select. This must be explicitly selected.")
+    )]
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Use-flags for CAPI2 conditional expression evaluation.
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(description = "Use-flags for CAPI2 conditional expression evaluation.")
+    )]
+    #[serde(default)]
+    pub flags: Vec<String>,
 }
 
 #[cfg(feature = "manifest-schema")]
@@ -208,6 +239,7 @@ pub struct TomlWorkspace {
     pub include_dirs: Option<Vec<AbsPathBuf>>,
     pub libraries: Vec<AbsPathBuf>,
     pub exclude_patterns: Vec<String>,
+    pub fusesoc: Option<FuseSocTomlConfig>,
 }
 
 impl TomlWorkspace {
@@ -235,6 +267,7 @@ impl TomlWorkspace {
             .map(|path| workspace_root.absolutize(path))
             .collect::<Vec<_>>();
         let exclude_patterns = toml_schema.exclude;
+        let fusesoc = toml_schema.fusesoc;
 
         Ok(TomlWorkspace {
             manifest_path: toml.clone(),
@@ -245,6 +278,7 @@ impl TomlWorkspace {
             include_dirs,
             libraries,
             exclude_patterns,
+            fusesoc,
         })
     }
 }

@@ -8,6 +8,7 @@ import {
   type LanguageStatusPresentation,
   type ProjectStatus,
   type ProjectStatusMessages,
+  type FuseSocCoreSelection,
   type ServerStatus,
   type ServerStatusMessages,
   type VideStatusMessages,
@@ -19,10 +20,13 @@ export const reloadWorkspaceCommand = 'vide.reloadWorkspace';
 export const showOutputCommand = 'vide.showOutput';
 export const showStatusCommand = 'vide.showStatus';
 export const reloadWorkspaceRequest = 'vide.server.reloadWorkspace';
+export const selectFuseSocProjectRequest = 'vide.server.selectFuseSocProject';
+export const listFuseSocTargetsRequest = 'vide.server.listFuseSocTargets';
 export const projectStatusNotification = 'vide/projectStatus';
 
 export interface VideStatusActions {
   createManifest: (rootUris: readonly string[]) => Promise<void>;
+  selectFuseSocProject: (workspaceUri: string) => Promise<void>;
   profileDiagnostics?: () => Promise<void>;
   reloadProject: () => Promise<void>;
   restartServer: () => Promise<void>;
@@ -35,6 +39,7 @@ export class VideStatusController implements vscode.Disposable {
   private projectStatus = initialProjectStatus();
   private serverStatus: ServerStatus = 'stopped';
   private serverDetail: string | undefined;
+  private readonly pendingProjectSelections = new Set<string>();
 
   constructor(private readonly actions: VideStatusActions) {
     this.item = vscode.window.createStatusBarItem(
@@ -66,6 +71,9 @@ export class VideStatusController implements vscode.Disposable {
   updateProjectStatus(status: ProjectStatus): void {
     this.projectStatus = status;
     this.update();
+    if (status.fusesocCoreSelections?.length) {
+      void this.promptForFuseSocProjectSelections(status.fusesocCoreSelections);
+    }
   }
 
   updateServerStatus(status: ServerStatus, detail?: string): void {
@@ -102,6 +110,9 @@ export class VideStatusController implements vscode.Disposable {
         break;
       case 'createManifest':
         await this.actions.createManifest(status.unconfiguredRootUris);
+        break;
+      case 'selectFuseSocProject':
+        await this.promptForFuseSocProjectSelections(status.fusesocCoreSelections ?? []);
         break;
       case 'profileDiagnostics':
         await this.actions.profileDiagnostics?.();
@@ -144,6 +155,16 @@ export class VideStatusController implements vscode.Disposable {
         label: vscode.l10n.t('$(error) Project Configuration Error'),
         description: status.errors[0],
         action: 'showOutput',
+      });
+    }
+
+    if (status.fusesocCoreSelections?.length) {
+      items.push({
+        label: vscode.l10n.t('$(list-selection) Select FuseSoC Project'),
+        description: vscode.l10n.t(
+          'Choose the root core and target for the Vide project',
+        ),
+        action: 'selectFuseSocProject',
       });
     }
 
@@ -197,12 +218,40 @@ export class VideStatusController implements vscode.Disposable {
 
     return items;
   }
+
+  private async promptForFuseSocProjectSelections(
+    selections: readonly FuseSocCoreSelection[],
+  ): Promise<void> {
+    const action = this.actions.selectFuseSocProject;
+
+    for (const selection of selections) {
+      const key = `${selection.workspaceUri}\0${selection.coreUris.join('\0')}`;
+      if (this.pendingProjectSelections.has(key)) {
+        continue;
+      }
+      this.pendingProjectSelections.add(key);
+
+      try {
+        await action(selection.workspaceUri);
+      } catch (error) {
+        const message = vscode.l10n.t(
+          'Failed to select the FuseSoC project: {0}',
+          error instanceof Error ? error.message : String(error),
+        );
+        this.actions.log(`[ERROR] ${message}`);
+        void vscode.window.showErrorMessage(message);
+      } finally {
+        this.pendingProjectSelections.delete(key);
+      }
+    }
+  }
 }
 
 type VideStatusQuickPickItem = vscode.QuickPickItem & {
   action:
     | 'openManifest'
     | 'createManifest'
+    | 'selectFuseSocProject'
     | 'profileDiagnostics'
     | 'reloadProject'
     | 'restartServer'
@@ -262,6 +311,7 @@ function localizedProjectStatusMessages(): ProjectStatusMessages {
     loadedOneManifestDetail: vscode.l10n.t('Project manifest loaded'),
     loadedManyManifestsDetail: (count) =>
       vscode.l10n.t('{0} project manifests loaded', count),
+    selectionRequiredDetail: vscode.l10n.t('Select the FuseSoC project core and target'),
     noManifestDetail: vscode.l10n.t('No project manifest'),
     errorDetail: vscode.l10n.t('Project configuration failed'),
   };

@@ -89,6 +89,15 @@ test('maps project status to language status presentations', () => {
     getProjectStatusPresentation({ ...baseStatus, state: 'error', errors: ['bad toml'] }).severity,
     'error',
   );
+  assert.deepEqual(
+    getProjectStatusPresentation({ ...baseStatus, state: 'selectionRequired' }),
+    {
+      text: 'Vide',
+      detail: 'Select the FuseSoC project core and target',
+      severity: 'warning',
+      busy: false,
+    },
+  );
 });
 
 test('parses project status notifications defensively', () => {
@@ -122,6 +131,29 @@ test('uses loading as the initial project status', () => {
     workspaceCount: 0,
     errors: [],
   });
+});
+
+test('parses FuseSoC core selection candidates', () => {
+  const status = asProjectStatus({
+    state: 'selectionRequired',
+    manifestUris: ['file:///workspace'],
+    unconfiguredRootUris: [],
+    workspaceCount: 0,
+    errors: ['multiple FuseSoC cores'],
+    fusesocCoreSelections: [
+      {
+        workspaceUri: 'file:///workspace',
+        coreUris: ['file:///workspace/a.core', 'file:///workspace/b.core'],
+      },
+    ],
+  });
+
+  assert.deepEqual(status?.fusesocCoreSelections, [
+    {
+      workspaceUri: 'file:///workspace',
+      coreUris: ['file:///workspace/a.core', 'file:///workspace/b.core'],
+    },
+  ]);
 });
 
 test('selects the main Vide status from lifecycle order', () => {

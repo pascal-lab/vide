@@ -813,7 +813,9 @@ fn qihe_project_manifest_file_name(
 
 fn project_manifest_workspace_root(manifest: &ProjectManifest) -> Option<&AbsPath> {
     match manifest {
-        ProjectManifest::Toml(path) => path.parent(),
+        ProjectManifest::Toml(path)
+        | ProjectManifest::FuseSocCore(path)
+        | ProjectManifest::FuseSocCoreDir(path) => path.parent(),
         ProjectManifest::UnconfiguredRoot(path) => Some(path.as_path()),
     }
 }

@@ -29,7 +29,8 @@
   "activationEvents": [
     "onLanguage:verilog",
     "onLanguage:systemverilog",
-    "workspaceContains:**/vide.toml"
+    "workspaceContains:**/vide.toml",
+    "workspaceContains:**/*.core"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/browser/extension.js",
