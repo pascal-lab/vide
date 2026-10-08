@@ -102,6 +102,10 @@ impl SyntaxTokenPtr {
         SyntaxTokenPtr { kind: token.kind(), range: token.text_range().unwrap() }
     }
 
+    pub fn from_kind_range(kind: TokenKind, range: TextRange) -> SyntaxTokenPtr {
+        SyntaxTokenPtr { kind, range }
+    }
+
     pub fn from_token_in(context: SyntaxNode, token: SyntaxToken) -> SyntaxTokenPtr {
         SyntaxTokenPtr::from_token(SyntaxTokenWithParent { parent: context, tok: token })
     }

@@ -19,9 +19,7 @@ tags
 
 # generated files
 generated.rs
-docs/public/vide-lab/
-docs/public/schemas/
-docs/hir-def/
+/docs/
 editors/zed/extension.wasm
 editors/zed/grammars/systemverilog/
 

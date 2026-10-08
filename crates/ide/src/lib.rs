@@ -11,7 +11,9 @@ pub type Cancellable<T> = Result<T, Cancelled>;
 
 pub mod analysis;
 pub mod analysis_host;
+pub mod anchor;
 pub mod definitions;
+pub mod hier;
 pub(crate) mod manifest;
 pub mod markup;
 pub(crate) mod module_resolution;
@@ -19,28 +21,35 @@ pub mod navigation_target;
 pub mod render;
 pub mod source_change;
 
+#[cfg(test)]
+mod closure_measure;
 pub mod code_action;
 pub mod code_lens;
+pub(crate) mod compile;
 pub mod completion;
 pub mod db;
+pub(crate) mod design_unit;
 pub mod diagnostics;
 pub mod document_highlight;
 pub mod document_symbols;
+pub(crate) mod elab_lookup;
+pub(crate) mod elaboration;
 pub mod folding_ranges;
 pub mod formatting;
 pub mod goto_declaration;
 pub mod goto_definition;
 pub mod hover;
+pub(crate) mod incrementality;
 #[cfg(test)]
-mod index_benchmarks;
+mod incrementality_benches;
 pub mod inlay_hint;
 #[cfg(test)]
 mod macro_hover_tests;
 pub mod range;
+pub mod reference_support;
 pub mod references;
 pub mod rename;
 pub mod selection_ranges;
-pub mod semantic_index;
 pub(crate) mod semantic_target;
 pub mod semantic_tokens;
 pub mod signature_help;

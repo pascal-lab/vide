@@ -1,14 +1,8 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 2963
 expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 ```systemverilog
-instance u_p of p
-
-program p ()
+p
 ```
-
-
----
-
-in `top` from [feature.v](<feature.v#L6>)

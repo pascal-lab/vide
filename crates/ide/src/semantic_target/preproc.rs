@@ -27,7 +27,7 @@ use super::{
 /// only stable token identity. One id can map to several tokens (a macro can
 /// emit the same argument more than once), so every copy is kept.
 ///
-/// Callers that resolve many offsets of one tree (the semantic index build)
+/// Callers that resolve many offsets of one tree (a reference walk)
 /// construct this once and share it across every resolution instead of
 /// re-walking the tree per token.
 pub(crate) type EmittedTokenIndex<'tree> =
@@ -260,7 +260,7 @@ fn syntax_tokens_for_macro_emitted_tokens<'tree>(
     (!tokens.is_empty()).then_some(tokens)
 }
 
-fn syntax_token_emitted_token_id(
+pub(crate) fn syntax_token_emitted_token_id(
     token: &SyntaxTokenWithParent<'_>,
 ) -> Option<SourceEmittedTokenId> {
     token

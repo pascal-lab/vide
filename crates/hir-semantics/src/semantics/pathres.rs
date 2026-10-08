@@ -30,6 +30,7 @@ impl SemanticsImpl<'_> {
         let reference = token_reference(self.db, file_id, parent);
         hir_to_def::name_to_def_at(
             self.db,
+            &self.context,
             OwnerRef::new(container, ident),
             name_ctx,
             reference.as_ref(),
@@ -54,6 +55,7 @@ impl SemanticsImpl<'_> {
         let reference = token_reference(self.db, file_id, parent);
         hir_to_def::name_to_def_at(
             self.db,
+            &self.context,
             OwnerRef::new(container, ident),
             name_ctx,
             reference.as_ref(),
@@ -75,7 +77,7 @@ impl SemanticsImpl<'_> {
         let Some(ident) = lower_ident_opt(Some(tok)) else {
             return Resolution::Unresolved;
         };
-        resolve_in_resolved_scopes_at(self.db, resolved, &ident, name_ctx, reference)
+        resolve_in_resolved_scopes_at(self.db, &self.context, resolved, &ident, name_ctx, reference)
     }
 
     /// Token-level variant of [`nameres_ident_in_scopes`] that derives the
@@ -108,7 +110,7 @@ impl SemanticsImpl<'_> {
         ident: &Ident,
         ctx: NameContext,
     ) -> Resolution<DefId> {
-        hir_def::pathres::resolve_name(self.db, owner, ident, ctx)
+        hir_def::pathres::resolve_name(self.db, &self.context, owner, ident, ctx)
     }
 
     /// Position-aware name resolution honoring the reference point (IEEE
@@ -120,7 +122,7 @@ impl SemanticsImpl<'_> {
         ctx: NameContext,
         reference: Option<&hir_def::pathres::NameRef>,
     ) -> Resolution<DefId> {
-        hir_def::pathres::resolve_name_at(self.db, owner, ident, ctx, reference)
+        hir_def::pathres::resolve_name_at(self.db, &self.context, owner, ident, ctx, reference)
     }
 }
 

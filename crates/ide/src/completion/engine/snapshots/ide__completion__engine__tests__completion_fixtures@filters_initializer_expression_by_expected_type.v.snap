@@ -1,5 +1,6 @@
 ---
 source: crates/ide/src/completion/engine/tests.rs
+assertion_line: 191
 expression: items
 input_file: crates/ide/src/completion/engine/fixtures/filters_initializer_expression_by_expected_type.v
 ---
@@ -21,6 +22,17 @@ input_file: crates/ide/src/completion/engine/fixtures/filters_initializer_expres
         edit: Some(
             TextEditItem {
                 ins: "same_width",
+                del: 84..84,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wrong_width",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "wrong_width",
                 del: 84..84,
             },
         ),

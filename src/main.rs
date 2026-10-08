@@ -16,7 +16,6 @@ const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
     "base_db=trace,",
     "hir_semantics=trace,",
     "hir_def=trace,",
-    "hir_ty=trace,",
     "ide=trace,",
     "project_model=trace,",
     "preproc_expand=trace,",

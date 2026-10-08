@@ -39,8 +39,8 @@ pub(crate) use self::workspace_state::{
 };
 use self::{
     diagnostics::{
-        DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticPublishFreshness,
-        DiagnosticSource, publisher::DiagnosticPublishKey,
+        DiagnosticFileRevision, DiagnosticPublishFreshness, DiagnosticSource, InstanceLedger,
+        SlangDiagnostics, publisher::DiagnosticPublishKey,
     },
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
@@ -94,6 +94,13 @@ pub(crate) struct DiagnosticsState {
     // text. Keep those target changes explicit so push diagnostics converge at
     // the normal change-processing boundary.
     pub(crate) pending_document_diagnostic_targets: FxHashSet<FileId>,
+    /// Profile slang diagnostics on the anchored ledger. Edit reprojects
+    /// ranges; it does not drop the last compile. Vide diagnostics are
+    /// computed at publish time, not stored here.
+    pub(crate) slang_diagnostics: SlangDiagnostics,
+    /// Profile instance list from the last compile. Sites reproject via
+    /// `SourceAstId`; identity is `HierPath`.
+    pub(crate) profile_instances: InstanceLedger,
     pub(crate) diagnostics_revision: u64,
     pub(crate) diagnostic_target_revision: u64,
     pub(crate) diagnostic_file_revisions: FxHashMap<FileId, DiagnosticFileRevision>,
@@ -171,6 +178,7 @@ pub(super) fn make_snapshot(
         mem_docs: analysis_state.mem_docs.clone(),
         sema_tokens_cache: Arc::clone(&analysis_state.semantic_tokens_cache),
         external_sources: external_sources.to_vec(),
+        slang_diagnostics: diagnostics.slang_diagnostics.clone(),
         diagnostic_publish_freshness,
         diagnostic_file_revisions: diagnostics.diagnostic_file_revisions.clone(),
         cancellation,
@@ -223,6 +231,8 @@ impl GlobalState {
             diagnostics: DiagnosticsState {
                 published_diagnostics: FxHashMap::default(),
                 pending_document_diagnostic_targets: FxHashSet::default(),
+                slang_diagnostics: SlangDiagnostics::new(),
+                profile_instances: InstanceLedger::default(),
                 diagnostics_revision: 0,
                 diagnostic_target_revision: 0,
                 diagnostic_file_revisions: FxHashMap::default(),
@@ -274,6 +284,12 @@ impl GlobalState {
         qihe::with_global_ctx(self, |qihe, ctx| qihe.handle(task, ctx));
     }
 
+    pub(crate) fn cancel_semantic_compiler(&mut self) {
+        semantic_compiler::with_global_ctx(self, |semantic_compiler, _ctx| {
+            semantic_compiler.cancel_active();
+        });
+    }
+
     pub(crate) fn schedule_semantic_compiler(&mut self, profile_ids: Vec<CompilationProfileId>) {
         semantic_compiler::with_global_ctx(self, |semantic_compiler, ctx| {
             semantic_compiler.schedule(profile_ids, ctx)
@@ -303,9 +319,9 @@ impl GlobalState {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct QiheDiagnosticState {
-    pub(crate) freshness: DiagnosticCommitFreshness,
-    pub(crate) generation: u64,
-    pub(crate) diagnostics: Vec<lsp_types::Diagnostic>,
-}
+#[cfg(test)]
+pub(crate) type QiheDiagnosticState =
+    crate::global_state::diagnostics::FileDiagnosticState<lsp_types::Diagnostic>;
+#[cfg(test)]
+pub(crate) type AnchoredQiheDiagnostic =
+    crate::global_state::diagnostics::ledger::AnchoredDiagnostic<lsp_types::Diagnostic>;

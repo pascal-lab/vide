@@ -19,8 +19,8 @@ pub(crate) use self::reference_index::macro_reference_index_for_profile_query;
 use crate::{
     db::PreprocDb,
     source_db::{
-        MappedSourcePreprocModel, PreprocSourceMapping, SourcePreprocContextStatus,
-        SourcePreprocQueryError, workspace_preproc_model_file_ids,
+        MappedSourcePreprocModel, PreprocSourceMapping, SourcePreprocQueryError,
+        workspace_preproc_model_file_ids,
     },
 };
 

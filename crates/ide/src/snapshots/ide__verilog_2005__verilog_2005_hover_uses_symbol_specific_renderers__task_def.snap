@@ -1,14 +1,8 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 2501
 expression: normalize_hover_snapshot(task_hover.info.as_str())
 ---
 ```systemverilog
-task drive(
-    input reg [3:0] value
-)
+void
 ```
-
-
----
-
-in `child` from [feature.v](<feature.v#L9>)

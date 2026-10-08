@@ -161,6 +161,43 @@ mod slang_ffi {
         type SyntaxTree;
         type SyntaxNode;
         type SyntaxToken;
+        type SourceSession;
+
+        fn new_source_session() -> SharedPtr<SourceSession>;
+        fn source_session_assign_text(session: SharedPtr<SourceSession>, path: &str, text: &str);
+        fn source_session_replace_buffer(session: SharedPtr<SourceSession>, path: &str, text: &str);
+        fn source_session_parse(
+            session: SharedPtr<SourceSession>,
+            name: &str,
+            path: &str,
+            predefines: Vec<String>,
+            include_paths: Vec<String>,
+            expand_includes: bool,
+            collect_expected_syntax: bool,
+            expected_syntax_offset: usize,
+            has_expected_syntax_offset: bool,
+        ) -> SharedPtr<SyntaxTree>;
+        fn source_session_parse_text(
+            session: SharedPtr<SourceSession>,
+            text: &str,
+            name: &str,
+            path: &str,
+            predefines: Vec<String>,
+            include_paths: Vec<String>,
+            expand_includes: bool,
+            collect_expected_syntax: bool,
+            expected_syntax_offset: usize,
+            has_expected_syntax_offset: bool,
+        ) -> SharedPtr<SyntaxTree>;
+        fn source_session_parse_count(session: SharedPtr<SourceSession>) -> u32;
+        fn source_session_parse_library_map(
+            session: SharedPtr<SourceSession>,
+            name: &str,
+            path: &str,
+            collect_expected_syntax: bool,
+            expected_syntax_offset: usize,
+            has_expected_syntax_offset: bool,
+        ) -> SharedPtr<SyntaxTree>;
     }
 
     #[namespace = "slang_sys::syntax::tree"]

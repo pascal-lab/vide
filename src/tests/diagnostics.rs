@@ -1,5 +1,134 @@
 use super::*;
 
+fn vide_diagnostics(diagnostics: &[lsp_types::Diagnostic]) -> Vec<&lsp_types::Diagnostic> {
+    diagnostics.iter().filter(|diagnostic| diagnostic.source.as_deref() == Some("vide")).collect()
+}
+
+fn recv_publish_diagnostics_until(
+    client: &Connection,
+    uri: &Url,
+    pred: impl Fn(&[lsp_types::Diagnostic]) -> bool,
+    context: &str,
+) -> Vec<lsp_types::Diagnostic> {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    let mut last = None;
+    while let Some(message) = recv_lsp_message_until(client, deadline, context) {
+        match message {
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::PublishDiagnostics::METHOD =>
+            {
+                let params =
+                    serde_json::from_value::<PublishDiagnosticsParams>(notification.params)
+                        .unwrap();
+                if &params.uri == uri {
+                    if pred(&params.diagnostics) {
+                        return params.diagnostics;
+                    }
+                    last = Some(params.diagnostics);
+                }
+            }
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Request(request) => handle_test_server_request(client, request, context),
+            _ => {}
+        }
+    }
+    panic!("{context}: matching publishDiagnostics not received; last={last:?}");
+}
+
+fn drain_publish_diagnostics_for_uri(
+    client: &Connection,
+    uri: &Url,
+    window: Duration,
+) -> Vec<Vec<lsp_types::Diagnostic>> {
+    let deadline = Instant::now() + window;
+    let mut extras = Vec::new();
+    while let Some(message) = recv_lsp_message_until(client, deadline, "drain publishDiagnostics") {
+        match message {
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::PublishDiagnostics::METHOD =>
+            {
+                let params =
+                    serde_json::from_value::<PublishDiagnosticsParams>(notification.params)
+                        .unwrap();
+                if &params.uri == uri {
+                    extras.push(params.diagnostics);
+                }
+            }
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Request(request) => {
+                handle_test_server_request(client, request, "drain publishDiagnostics")
+            }
+            _ => {}
+        }
+    }
+    extras
+}
+
+#[test]
+fn did_open_after_semantic_compile_does_not_duplicate_vide_diagnostics() {
+    let text = "`ifdef NEVER\nwire hidden;\n`endif\nmodule top;\nendmodule\n";
+    let (_temp_dir, client, server_thread, uri) = setup_configured_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        text,
+    );
+
+    let first = recv_publish_diagnostics_until(
+        &client,
+        &uri,
+        |diagnostics| !vide_diagnostics(diagnostics).is_empty(),
+        "first semantic compile vide diagnostic",
+    );
+    let first_vide = vide_diagnostics(&first).len();
+    assert!(first_vide >= 1, "expected a Vide diagnostic before republish: {first:?}");
+
+    // A second didOpen of the same file republishes the cached profile
+    // diagnostics without compiling again.
+    open_test_document(&client, uri.clone(), text);
+    let extras = drain_publish_diagnostics_for_uri(&client, &uri, Duration::from_secs(5));
+    for extra in &extras {
+        assert_eq!(
+            vide_diagnostics(extra).len(),
+            first_vide,
+            "didOpen must not duplicate Vide diagnostics: first={first:?} extra={extra:?}"
+        );
+    }
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn did_close_after_semantic_compile_does_not_duplicate_vide_diagnostics() {
+    let text = "`ifdef NEVER\nwire hidden;\n`endif\nmodule top;\nendmodule\n";
+    let (_temp_dir, client, server_thread, uri) = setup_configured_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        text,
+    );
+
+    let first = recv_publish_diagnostics_until(
+        &client,
+        &uri,
+        |diagnostics| !vide_diagnostics(diagnostics).is_empty(),
+        "first semantic compile vide diagnostic",
+    );
+    let first_vide = vide_diagnostics(&first).len();
+    assert!(first_vide >= 1, "expected a Vide diagnostic before close: {first:?}");
+
+    close_test_document(&client, uri.clone());
+    let extras = drain_publish_diagnostics_for_uri(&client, &uri, Duration::from_secs(5));
+    for extra in &extras {
+        assert!(
+            vide_diagnostics(extra).len() <= first_vide,
+            "didClose must not duplicate Vide diagnostics: first={first:?} extra={extra:?}"
+        );
+    }
+
+    shutdown_test_server(&client, server_thread);
+}
+
 #[test]
 fn default_diagnostics_warn_on_port_width_mismatch() {
     let text = "\
@@ -1472,29 +1601,24 @@ fn document_diagnostic_result_id_changes_when_dependency_changes() {
         )))
         .unwrap();
 
-    let second_id = lsp_server::RequestId::from(9);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            second_id.clone(),
-            DocumentDiagnosticRequest::METHOD.to_string(),
-            DocumentDiagnosticParams {
-                text_document: TextDocumentIdentifier { uri: top_uri },
-                identifier: None,
-                previous_result_id: Some(first_result_id.clone()),
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-    let (second_result_id, second_items) = recv_document_diagnostics(&client, second_id);
+    let (second_result_id, second_items) = request_document_diagnostics_until(
+        &client,
+        top_uri,
+        9,
+        |result_id, items| {
+            result_id != Some(first_result_id.as_str())
+                && !items.iter().any(|diag| diag.message.contains("port 'b' has no connection"))
+        },
+        "missing port diagnostic should disappear after the profile compile",
+    );
     assert_ne!(
         second_result_id.as_deref(),
         Some(first_result_id.as_str()),
         "dependency edit must invalidate top.sv diagnostic result id"
     );
     assert!(
-        second_items.is_empty(),
+        second_items.is_empty()
+            || !second_items.iter().any(|diag| diag.message.contains("port 'b' has no connection")),
         "missing port diagnostic should disappear after dependency edit: {second_items:?}"
     );
 

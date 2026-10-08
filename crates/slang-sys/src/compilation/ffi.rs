@@ -13,6 +13,37 @@ pub(crate) use slang_ffi::*;
 #[cxx::bridge(namespace = "slang_sys::compilation")]
 mod slang_ffi {
     #[derive(Debug, Clone, PartialEq, Eq)]
+    struct HierInstanceAnswer {
+        path: String,
+        file: String,
+        offset: usize,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct SymbolAnswer {
+        found: bool,
+        name: String,
+        type_name: String,
+        kind: String,
+        def_file: String,
+        def_offset: usize,
+        owner_class: String,
+        inheritance: Vec<String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct MemberAnswer {
+        name: String,
+        type_name: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct TypeAnswer {
+        found: bool,
+        type_name: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct ParseSyntaxTreeOptions {
         predefines: Vec<String>,
         include_paths: Vec<String>,
@@ -29,6 +60,7 @@ mod slang_ffi {
         include!("syntax/wrapper.h");
 
         type SyntaxTree = crate::syntax::ffi::SyntaxTree;
+        type SourceSession = crate::syntax::ffi::SourceSession;
     }
 
     #[namespace = "slang_sys::diagnostic"]
@@ -45,6 +77,10 @@ mod slang_ffi {
         type Compilation;
 
         fn new_compilation(top_modules: Vec<String>) -> UniquePtr<Compilation>;
+        fn new_compilation_on_session(
+            session: SharedPtr<SourceSession>,
+            top_modules: Vec<String>,
+        ) -> UniquePtr<Compilation>;
         fn parse_syntax_tree_from_text(
             compilation: Pin<&mut Compilation>,
             text: &str,
@@ -86,6 +122,29 @@ mod slang_ffi {
             compilation: &Compilation,
             warning_options: Vec<String>,
         ) -> Vec<RawSyntaxDiagnostic>;
+        fn lookup_symbol(
+            compilation: Pin<&mut Compilation>,
+            path: &str,
+            offset: usize,
+        ) -> Result<SymbolAnswer>;
+        fn lookup_scoped(
+            compilation: Pin<&mut Compilation>,
+            left: &str,
+            right: &str,
+        ) -> SymbolAnswer;
+        fn list_members(
+            compilation: Pin<&mut Compilation>,
+            path: &str,
+            offset: usize,
+        ) -> Result<Vec<MemberAnswer>>;
+        fn list_scope_members(compilation: Pin<&mut Compilation>, name: &str) -> Vec<MemberAnswer>;
+        fn lookup_type(
+            compilation: Pin<&mut Compilation>,
+            path: &str,
+            start: usize,
+            end: usize,
+        ) -> Result<TypeAnswer>;
+        fn list_instances(compilation: Pin<&mut Compilation>) -> Vec<HierInstanceAnswer>;
 
     }
 }

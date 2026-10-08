@@ -11,19 +11,19 @@ use lsp_types::{
     CodeActionContext, CodeActionKind, CodeActionKindLiteralSupport, CodeActionLiteralSupport,
     CodeActionOrCommand, CodeActionParams, CompletionParams, CompletionResponse,
     DiagnosticClientCapabilities, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
-    DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFormattingParams,
-    DocumentSymbolParams, DocumentSymbolResponse, FileChangeType, FileEvent, FoldingRange,
-    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    InlayHintParams, Position, ProgressParams, PublishDiagnosticsParams, Range,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
+    DocumentFormattingParams, DocumentSymbolParams, DocumentSymbolResponse, FileChangeType,
+    FileEvent, FoldingRange, FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverParams, InlayHintParams, Position, ProgressParams, PublishDiagnosticsParams, Range,
     SemanticTokensParams, SemanticTokensResult, SignatureHelpParams,
     TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
     TextDocumentItem, TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
     WorkDoneProgressParams, WorkspaceClientCapabilities, WorkspaceDiagnosticParams,
     WorkspaceDiagnosticReportResult, WorkspaceSymbolParams, WorkspaceSymbolResponse,
     notification::{
-        DidChangeConfiguration, DidChangeTextDocument, DidChangeWatchedFiles, DidOpenTextDocument,
-        DidSaveTextDocument, Exit, Notification as _,
+        DidChangeConfiguration, DidChangeTextDocument, DidChangeWatchedFiles, DidCloseTextDocument,
+        DidOpenTextDocument, DidSaveTextDocument, Exit, Notification as _,
     },
     request::{
         CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls, CallHierarchyPrepare,
@@ -203,6 +203,16 @@ fn open_test_document(client: &Connection, uri: Url, text: &str) {
                     text: text.to_owned(),
                 },
             },
+        )))
+        .unwrap();
+}
+
+fn close_test_document(client: &Connection, uri: Url) {
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidCloseTextDocument::METHOD.to_string(),
+            DidCloseTextDocumentParams { text_document: TextDocumentIdentifier { uri } },
         )))
         .unwrap();
 }

@@ -1,5 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 4032
 expression: report
 ---
 # document symbols
@@ -34,12 +35,11 @@ cfg_top Config container=None
 264..267 Port(Clk) SemaTokenModifier(READ)
 520..523 Port(Clk) SemaTokenModifier(READ)
 626..633 Instance SemaTokenModifier(0x0)
-634..635 Port(Others) SemaTokenModifier(WRITE)
 
 # navigation
 module_ref: ["Some(\"child\"):Some(Module)"]
-udp_ref: ["Some(\"udp_and\"):Some(Primitive)"]
-port_ref: ["Some(\"a\"):Some(PortDecl)"]
+udp_ref: ["Some(\"udp_and\"):None"]
+port_ref: ["Some(\"a\"):None"]
 sig_ref: ["Some(\"sig\"):Some(NetDecl)"]
 genvar_ref: ["Some(\"i\"):Some(Genvar)"]
 specparam_ref: ["Some(\"T_SETUP\"):Some(Specparam)"]

@@ -10,9 +10,9 @@ itertools.workspace = true
 preproc-expand.workspace = true
 rustc-hash.workspace = true
 syntax.workspace = true
+triomphe.workspace = true
 utils.workspace = true
 vfs.workspace = true
 
 [dev-dependencies]
 base-db.workspace = true
-triomphe.workspace = true

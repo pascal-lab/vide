@@ -559,16 +559,16 @@ pub(crate) fn highlights_target(
 }
 
 pub(crate) fn references_target(
-    db: &RootDb,
+    db: &crate::analysis::AnalysisContext<'_>,
     target: ManifestTarget,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
-    let info = target_info(db, target)?;
+    let info = target_info(db.db, target)?;
     let selected = info.selected_value?;
     if info.key != "top_modules" {
         return None;
     }
-    let modules = module_targets(db, &selected.text);
+    let modules = module_targets(db.db, &selected.text);
     let [module] = modules.as_slice() else {
         tracing::debug!(
             ?info.file_id,
@@ -598,19 +598,19 @@ pub(crate) fn target_range(db: &RootDb, target: ManifestTarget) -> Option<TextRa
 }
 
 pub(crate) fn rename_target(
-    db: &RootDb,
+    db: &crate::analysis::AnalysisContext<'_>,
     target: ManifestTarget,
     config: &crate::rename::RenameConfig,
     new_name: &str,
 ) -> Result<SourceChange, crate::rename::RenameError> {
-    let info = target_info(db, target).ok_or(crate::rename::RenameError::NoRefFound)?;
+    let info = target_info(db.db, target).ok_or(crate::rename::RenameError::NoRefFound)?;
     let value = info.selected_value.ok_or(crate::rename::RenameError::NoRefFound)?;
     if info.key != "top_modules" {
         return Err(crate::rename::RenameError::NoRefFound);
     }
     let edit_range = value.edit_range.ok_or(crate::rename::RenameError::NoRefFound)?;
 
-    let modules = module_targets(db, &value.text);
+    let modules = module_targets(db.db, &value.text);
     let [module] = modules.as_slice() else {
         tracing::debug!(
             ?info.file_id,

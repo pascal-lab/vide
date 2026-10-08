@@ -16,6 +16,7 @@ use vfs::FileId;
 
 use crate::{
     FilePosition, RangeInfo,
+    analysis::AnalysisContext,
     db::root_db::RootDb,
     definitions::DefinitionClass,
     hover::{
@@ -48,21 +49,23 @@ pub struct HoverConfig {
 }
 
 pub(crate) fn hover(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Markup>> {
     let _span = tracing::debug_span!("ide.hover", ?file_id, ?offset).entered();
-    let sema = Semantics::new(db);
-    let parsed_file = sema.parse_file(file_id);
-    let target = resolve_semantic_target(db, file_id, offset, parsed_file.root(), token_precedence);
-    render_hover_target(db, file_id, offset, &sema, target)
+    if let Some(hover) = crate::design_unit::hover(db, FilePosition { file_id, offset }) {
+        return Some(hover);
+    }
+    let tree = db.parse_file(file_id);
+    let target =
+        resolve_semantic_target(db.db, file_id, offset, Some(tree.root()), token_precedence);
+    render_hover_target(db, file_id, offset, target)
 }
 
 fn render_hover_target(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
     offset: TextSize,
-    sema: &Semantics<RootDb>,
     target: TargetResolution<'_>,
 ) -> Option<RangeInfo<Markup>> {
     let mut ranges = Vec::new();
@@ -72,13 +75,13 @@ fn render_hover_target(
     for target in target.targets_for_intent(TargetIntent::Describe) {
         let hover = match target {
             SemanticTarget::PreprocMacro(target) => {
-                render_macro_hover_target(db, file_id, offset, target)
+                render_macro_hover_target(db.db, file_id, offset, target)
             }
-            SemanticTarget::Include(includes) => render_include_hover(db, includes),
-            SemanticTarget::Manifest(target) => crate::manifest::hover_target(db, target),
+            SemanticTarget::Include(includes) => render_include_hover(db.db, includes),
+            SemanticTarget::Manifest(target) => crate::manifest::hover_target(db.db, target),
             SemanticTarget::Source(target) => {
                 has_source_target = true;
-                hover_for_source_target(sema, file_id.into(), target)
+                hover_for_source_target(db, file_id.into(), target)
             }
         }?;
         ranges.push(hover.range);
@@ -88,30 +91,30 @@ fn render_hover_target(
     let range = covering_range(&ranges)?;
     let hover = RangeInfo::new(range, merge_hover_results(markups)?);
     Some(if has_source_target {
-        with_expanded_macro_hover(db, file_id, offset, hover)
+        with_expanded_macro_hover(db.db, file_id, offset, hover)
     } else {
         hover
     })
 }
 
 fn hover_for_source_target(
-    sema: &Semantics<RootDb>,
+    db: &AnalysisContext<'_>,
     hir_file_id: HirFileId,
     target: SourceTarget<'_>,
 ) -> Option<RangeInfo<Markup>> {
     let (range, tokens) = target.into_parts();
-    hover_for_token_selection(sema, hir_file_id, range, tokens)
+    hover_for_token_selection(db, hir_file_id, range, tokens)
 }
 
 fn hover_for_token_selection(
-    sema: &Semantics<RootDb>,
+    db: &AnalysisContext<'_>,
     hir_file_id: HirFileId,
     range: TextRange,
     tokens: Vec<SyntaxTokenWithParent<'_>>,
 ) -> Option<RangeInfo<Markup>> {
     let markups = tokens
         .into_iter()
-        .filter_map(|token| hover_for_token(sema, hir_file_id, token))
+        .filter_map(|token| hover_for_token(db, hir_file_id, token))
         .collect::<Vec<_>>();
     let res = merge_hover_results(markups)?;
     Some(RangeInfo::new(range, res))
@@ -161,13 +164,19 @@ fn handle_system_subroutine(tp: &SyntaxTokenWithParent<'_>) -> Option<Markup> {
 }
 
 fn hover_for_token(
-    sema: &Semantics<RootDb>,
+    db: &AnalysisContext<'_>,
     file_id: HirFileId,
     token: SyntaxTokenWithParent,
 ) -> Option<Markup> {
-    handle_literal(sema, file_id, token)
-        .or_else(|| handle_system_subroutine(&token))
-        .or_else(|| handle_definition(sema, file_id, token))
+    handle_system_subroutine(&token).or_else(|| handle_definition(db, file_id, token)).or_else(
+        || {
+            if !token.tok.kind().is_literal() {
+                return None;
+            }
+            let sema = db.semantics();
+            handle_literal(&sema, file_id, token)
+        },
+    )
 }
 
 fn merge_hover_results(markups: Vec<Markup>) -> Option<Markup> {
@@ -186,25 +195,54 @@ fn merge_hover_results(markups: Vec<Markup>) -> Option<Markup> {
 }
 
 fn handle_definition(
-    sema: &Semantics<RootDb>,
+    db: &AnalysisContext<'_>,
     file_id: HirFileId,
     tp: SyntaxTokenWithParent,
 ) -> Option<Markup> {
-    let token_text = token_text(sema.db, file_id, &tp);
-    let def = DefinitionClass::resolve(sema.db, file_id, tp);
+    if let Some(ty) = slang_type_line(db, file_id, tp) {
+        let mut res = Markup::new();
+        res.push_with_code_fence(&ty);
+        return Some(res);
+    }
+    hir_definition_markup(db, file_id, tp, true)
+}
+
+fn hir_definition_markup(
+    db: &AnalysisContext<'_>,
+    file_id: HirFileId,
+    tp: SyntaxTokenWithParent,
+    this_file_only: bool,
+) -> Option<Markup> {
+    let token_text = token_text(db.db, file_id, &tp);
+    let def = DefinitionClass::resolve(db, file_id, tp);
+    if matches!(def, hir_def::symbol::Resolution::Unresolved) {
+        return None;
+    }
+    if this_file_only {
+        let file = file_id.as_file()?;
+        let this_file = def.candidates().iter().all(|class| {
+            class.clone().origins(db.db).into_iter().all(|origin| {
+                crate::definitions::hir_origin_is_local_or_generated(db.db, file, origin)
+            })
+        });
+        if !this_file {
+            return None;
+        }
+    }
+    let sema = db.semantics();
     let anchor_file_id = file_id.expect_file();
     let mut res = Markup::new();
 
     match def {
         hir_def::symbol::Resolution::Unique(DefinitionClass::Definition(def)) => {
-            res.merge(render::render_definition(sema, def, anchor_file_id));
+            res.merge(render::render_definition(&sema, def, anchor_file_id));
         }
         hir_def::symbol::Resolution::Unique(DefinitionClass::PortConnShorthand { port, local }) => {
             res.title("Port connection shorthand");
             res.section("Port");
-            res.merge(render::render_definition(sema, port, anchor_file_id));
+            res.merge(render::render_definition(&sema, port, anchor_file_id));
             res.section("Local");
-            res.merge(render::render_definition(sema, local, anchor_file_id));
+            res.merge(render::render_definition(&sema, local, anchor_file_id));
         }
         hir_def::symbol::Resolution::Ambiguous(definitions) => {
             let token_text = token_text.unwrap_or_else(|| "reference".to_string());
@@ -229,19 +267,45 @@ fn handle_definition(
                 }
                 match definition {
                     DefinitionClass::Definition(definition) => res.merge(
-                        render::render_definition_location(sema, definition, anchor_file_id),
+                        render::render_definition_location(&sema, definition, anchor_file_id),
                     ),
                     DefinitionClass::PortConnShorthand { port, local } => {
-                        res.merge(render::render_definition_location(sema, port, anchor_file_id));
-                        res.merge(render::render_definition_location(sema, local, anchor_file_id));
+                        res.merge(render::render_definition_location(&sema, port, anchor_file_id));
+                        res.merge(render::render_definition_location(&sema, local, anchor_file_id));
                     }
                 }
             }
         }
-        hir_def::symbol::Resolution::Unresolved => return None,
+        hir_def::symbol::Resolution::Unresolved => unreachable!("unresolved returned above"),
     }
 
-    Some(res)
+    (!res.is_empty()).then_some(res)
+}
+
+fn slang_type_line(
+    db: &AnalysisContext<'_>,
+    file_id: HirFileId,
+    tp: SyntaxTokenWithParent<'_>,
+) -> Option<String> {
+    let file = file_id.as_file()?;
+    let range = tp.text_range()?;
+    let crate::compile::QueryStatus::Ready(Some(info)) =
+        crate::elab_lookup::lookup_symbol_at(db, file, usize::from(range.start()))
+    else {
+        return None;
+    };
+    if info.type_name.is_empty() {
+        return None;
+    }
+    if info.owner_class.is_empty() {
+        Some(info.type_name)
+    } else {
+        Some(crate::elab_lookup::format_class_member(
+            &info.owner_class,
+            &info.type_name,
+            &info.inheritance,
+        ))
+    }
 }
 
 fn token_text(

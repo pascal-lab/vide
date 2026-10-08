@@ -1,6 +1,7 @@
 use base_db::project::{Predefine, PreprocessConfig};
 
 use super::*;
+use crate::compilation_plan;
 
 pub(crate) fn source_preproc_file_ids(
     db: &dyn PreprocDb,
@@ -11,7 +12,8 @@ pub(crate) fn source_preproc_file_ids(
     preprocess: &PreprocessConfig,
 ) -> Result<PreprocSourceMap, SourcePreprocQueryError> {
     let mut source_map = PreprocSourceMap::default();
-    let path_file_ids = path_file_ids(db);
+    let path_file_ids = db.path_file_ids();
+    let source_buffer_file_ids = compilation_plan::source_buffer_file_ids_for_file(db, file_id);
     let root_source = PreprocSourceId::from(trace.root_buffer_id);
     source_map.insert_real_file(root_source, file_id, db.file_text(file_id).len());
     let include_buffer_texts = include_buffer_texts_by_path(options);
@@ -33,7 +35,7 @@ pub(crate) fn source_preproc_file_ids(
 
         match source.origin {
             SourceBufferOrigin::Source => {
-                if let Some(mapped_file_id) = path_file_ids.get(&source.path) {
+                if let Some(mapped_file_id) = source_buffer_file_ids.get(&source.path) {
                     source_map.insert_real_file(
                         source_id,
                         mapped_file_id,

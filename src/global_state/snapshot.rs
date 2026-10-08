@@ -19,7 +19,7 @@ use super::{
     diagnostics::{
         DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticOwner,
         DiagnosticPublishFreshness, DiagnosticRequestScope, DiagnosticSnapshotKey,
-        DiagnosticSource, DiagnosticWorkspaceProducer,
+        DiagnosticSource, DiagnosticWorkspaceProducer, SlangDiagnostics,
     },
     mem_docs::MemDocs,
     response_effect::{AcceptedResponseEffect, AcceptedResponseEffects},
@@ -68,6 +68,7 @@ pub(crate) struct GlobalStateSnapshot {
     // pub(crate) check_fixes: CheckFixes,
     pub(crate) sema_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
     pub(crate) external_sources: Vec<StdArc<dyn DiagnosticSource>>,
+    pub(crate) slang_diagnostics: SlangDiagnostics,
     pub(crate) diagnostic_publish_freshness: DiagnosticPublishFreshness,
     pub(crate) diagnostic_file_revisions: FxHashMap<FileId, DiagnosticFileRevision>,
     pub(crate) cancellation: CancellationToken,
@@ -143,23 +144,22 @@ impl GlobalStateSnapshot {
     pub(crate) fn diagnostics(
         &self,
         file_id: FileId,
-    ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
+    ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
         if !self.document_diagnostics_enabled(file_id) {
             return Ok(Vec::new());
         }
 
         if self.open_file_syntax_diagnostics_for_disabled_root(file_id) {
-            return self.analysis.parse_diagnostics(file_id);
+            return Ok(self.analysis.parse_diagnostics(file_id)?);
         }
 
         if let Some(DiagnosticOwner::CompilationProfile(profile_id)) =
             self.diagnostic_owner(file_id, DiagnosticRequestScope::Document)
         {
-            let diagnostics = self.analysis.compilation_profile_diagnostics(profile_id)?;
-            return Ok(diagnostics.into_iter().filter(|diag| diag.file_id == file_id).collect());
+            return self.compilation_profile_file_diagnostics(profile_id, file_id);
         }
 
-        self.analysis.diagnostics(file_id)
+        Ok(self.analysis.diagnostics(file_id)?)
     }
 
     pub(crate) fn lsp_diagnostics(
@@ -176,13 +176,103 @@ impl GlobalStateSnapshot {
         }
 
         let diagnostics = self.diagnostics(file_id)?;
+        self.lsp_diagnostics_from_ide(file_id, diagnostics)
+    }
+
+    pub(crate) fn lsp_diagnostics_from_ide(
+        &self,
+        file_id: FileId,
+        diagnostics: Vec<ide::diagnostics::Diagnostic>,
+    ) -> anyhow::Result<Vec<lsp_types::Diagnostic>> {
         let line_info = self.line_info(file_id)?;
+        let freshness = self.diagnostic_commit_freshness();
+        let note = crate::global_state::diagnostics::freshness_note(
+            self.config.i18n,
+            self.slang_diagnostics.edits_ago(file_id, freshness.snapshot_id()),
+        );
         let mut diagnostics = diagnostics
             .into_iter()
-            .map(|diag| crate::lsp_ext::to_proto::diagnostic(self.config.i18n, &line_info, diag))
+            .map(|diag| {
+                let mut lsp = crate::lsp_ext::to_proto::diagnostic(
+                    self.config.i18n,
+                    &line_info,
+                    diag.clone(),
+                );
+                if diag.source == ide::diagnostics::DiagnosticSource::SlangSemantic
+                    && let Some(note) = &note
+                {
+                    crate::global_state::diagnostics::append_freshness_note(&mut lsp.message, note);
+                }
+                lsp
+            })
             .collect::<Vec<_>>();
         diagnostics.extend(self.external_lsp_diagnostics(file_id)?);
         Ok(diagnostics)
+    }
+
+    pub(crate) fn compilation_profile_diagnostics(
+        &self,
+        profile_id: base_db::project::CompilationProfileId,
+    ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
+        let mut diagnostics = Vec::new();
+        for file_id in self.analysis.compilation_profile_file_ids(profile_id)? {
+            diagnostics.extend(self.analysis.parse_diagnostics(file_id)?);
+        }
+        diagnostics.extend(self.compilation_profile_slang_diagnostics(profile_id)?);
+        for file_id in self.mem_docs.file_ids() {
+            if self.analysis.file_compilation_profile(file_id)? == Some(profile_id) {
+                diagnostics.extend(self.analysis.file_vide_diagnostics(file_id)?);
+            }
+        }
+        Ok(diagnostics)
+    }
+
+    /// Covering-closure parse plus cached profile semantic plus Vide checks.
+    /// Does not compile the profile on the request path.
+    fn compilation_profile_file_diagnostics(
+        &self,
+        profile_id: base_db::project::CompilationProfileId,
+        file_id: FileId,
+    ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
+        let mut diagnostics = self.analysis.parse_diagnostics(file_id)?;
+        let config = self.config.diagnostics_config();
+        if config.enabled && config.semantic.enabled {
+            diagnostics.extend(
+                self.compilation_profile_slang_diagnostics(profile_id)?.into_iter().filter(
+                    |diagnostic| {
+                        diagnostic.file_id == file_id
+                            && diagnostic.source
+                                == ide::diagnostics::DiagnosticSource::SlangSemantic
+                    },
+                ),
+            );
+        }
+        diagnostics.extend(self.analysis.file_vide_diagnostics(file_id)?);
+        Ok(diagnostics)
+    }
+
+    fn compilation_profile_slang_diagnostics(
+        &self,
+        profile_id: base_db::project::CompilationProfileId,
+    ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
+        let files = self.analysis.compilation_profile_file_ids(profile_id)?;
+        let freshness = self.diagnostic_commit_freshness();
+        Ok(files
+            .into_iter()
+            .flat_map(|file_id| {
+                if self.slang_diagnostics.edits_ago(file_id, freshness.snapshot_id()) != 0 {
+                    return Vec::new();
+                }
+                self.slang_diagnostics.ide_diagnostics(
+                    file_id,
+                    freshness.snapshot_id(),
+                    &self.analysis,
+                )
+            })
+            .filter(|diagnostic| {
+                diagnostic.source == ide::diagnostics::DiagnosticSource::SlangSemantic
+            })
+            .collect())
     }
 
     pub(crate) fn external_diagnostics(
@@ -207,7 +297,14 @@ impl GlobalStateSnapshot {
                 let line_info = self.line_info(diagnostic.file_id)?;
                 diagnostics.push(to_proto::diagnostic(self.config.i18n, &line_info, diagnostic));
             }
-            diagnostics.extend(source.lsp_diagnostics(file_id, &freshness));
+            let line_info = self.line_info(file_id).ok();
+            diagnostics.extend(source.lsp_diagnostics_projected(
+                file_id,
+                &freshness,
+                &self.analysis,
+                self.config.i18n,
+                line_info.as_ref(),
+            ));
         }
         Ok(diagnostics)
     }
@@ -403,15 +500,15 @@ impl GlobalStateSnapshot {
     pub(crate) fn workspace_diagnostics_for_producer(
         &self,
         producer: &DiagnosticWorkspaceProducer,
-    ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
+    ) -> anyhow::Result<Vec<ide::diagnostics::Diagnostic>> {
         match producer.owner() {
             DiagnosticOwner::CompilationProfile(profile_id) => {
-                self.analysis.compilation_profile_diagnostics(profile_id)
+                self.compilation_profile_diagnostics(profile_id)
             }
             DiagnosticOwner::SourceRoot(_) => {
-                self.analysis.source_root_diagnostics(producer.representative_file_id())
+                Ok(self.analysis.source_root_diagnostics(producer.representative_file_id())?)
             }
-            DiagnosticOwner::File(file_id) => self.diagnostics(file_id),
+            DiagnosticOwner::File(file_id) => Ok(self.diagnostics(file_id)?),
             DiagnosticOwner::External { .. } => Ok(Vec::new()),
         }
     }
@@ -587,5 +684,70 @@ mod tests {
         assert_eq!(live_file_ids, vec![FileId::from_raw(0), FileId::from_raw(1)]);
 
         assert_eq!(snapshot.file_ids(), vec![FileId::from_raw(0)]);
+    }
+
+    #[test]
+    fn request_path_does_not_compile_profile_semantic_diagnostics() {
+        use base_db::{
+            change::Change,
+            project::{CompilationProfile, CompilationProfileId, ProjectConfig},
+            source_root::{SourceRoot, SourceRootId},
+        };
+        use triomphe::Arc;
+        use vfs::{ChangedFile, FileSet};
+
+        let root = TestDir::new("request-path-no-profile-compile");
+        let root_path = root.path().to_path_buf();
+        let config = config::Config::new(
+            Opt {
+                process_name: "vide-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root_path.clone(),
+            ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+        let (server, _client) = Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
+
+        let child = FileId::from_raw(0);
+        let top = FileId::from_raw(1);
+        let mut file_set = FileSet::default();
+        file_set.insert(child, VfsPath::new_virtual_path("/child.sv".into()));
+        file_set.insert(top, VfsPath::new_virtual_path("/top.sv".into()));
+        let mut change = Change::new();
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: Default::default(),
+            }],
+        )));
+        change.add_changed_file(ChangedFile::create(
+            child,
+            "module child(input logic a, input logic b);\nendmodule\n",
+        ));
+        change.add_changed_file(ChangedFile::create(
+            top,
+            "module top;\n  logic sig;\n  child u(.a(sig));\nendmodule\n",
+        ));
+        state.analysis.analysis_host.apply_change(change);
+
+        assert!(
+            state.diagnostics.slang_diagnostics.is_empty(),
+            "the request must not wait for a background profile compile"
+        );
+        let diagnostics = state.make_snapshot().diagnostics(top).unwrap();
+        assert!(
+            diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
+            "request path must not compile profile semantic diagnostics: {diagnostics:?}"
+        );
     }
 }

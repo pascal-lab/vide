@@ -4,15 +4,15 @@ use super::{
 };
 use crate::{
     FilePosition,
+    analysis::AnalysisContext,
     completion::{
         context::CompletionContext,
         request::{CompletionProvider, CompletionRequest},
     },
-    db::root_db::RootDb,
 };
 
 pub(super) fn complete_request(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     ctx: &CompletionContext,
     request: CompletionRequest,
@@ -24,7 +24,7 @@ pub(super) fn complete_request(
 }
 
 fn complete_provider(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     ctx: &CompletionContext,
     provider: CompletionProvider,

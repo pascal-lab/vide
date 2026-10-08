@@ -103,9 +103,9 @@ fn preproc_include_only_sv_query_uses_all_including_roots() {
 
     let plan = db.compilation_plan_for_profile(Some(PROFILE));
     assert!(plan.include_only.contains(&HEADER), "{plan:?}");
-    assert!(plan.roots.contains(&TOP), "{plan:?}");
-    assert!(plan.roots.contains(&LEAF), "{plan:?}");
-    assert!(!plan.roots.contains(&HEADER), "{plan:?}");
+    assert!(plan.has_root(TOP), "{plan:?}");
+    assert!(plan.has_root(LEAF), "{plan:?}");
+    assert!(!plan.has_root(HEADER), "{plan:?}");
 
     let contexts = source_preproc_single_query_contexts(&db, HEADER);
     assert!(contexts.model_file_ids.contains(&TOP), "{contexts:?}");
@@ -156,16 +156,4 @@ fn preproc_header_without_including_context_uses_standalone_model() {
 
     assert!(contexts.model_file_ids.contains(&HEADER), "{contexts:?}");
     assert!(!contexts.model_file_ids.contains(&TOP), "{contexts:?}");
-}
-
-#[test]
-fn preproc_partial_context_index_is_structured_unavailable() {
-    let contexts = SourcePreprocQueryContexts {
-        model_file_ids: Vec::new(),
-        status: SourcePreprocContextStatus::Partial { skipped_models: 2 },
-    };
-
-    let error = finish_empty_single_query(&contexts, None).unwrap_err();
-
-    assert!(matches!(error, PreprocError::PartialPreprocContextIndex { skipped_models: 2 }));
 }

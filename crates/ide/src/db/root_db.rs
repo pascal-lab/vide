@@ -6,14 +6,18 @@ use base_db::{
     salsa::{self, Durability},
     source_db::{FileLoader, SourceDb, SourceRootDb},
 };
+use design_graph::DesignGraphDb;
 use hir_def::db::HirDefDb;
-use hir_ty::db::TyDb;
 use preproc_expand::db::PreprocDb;
 use triomphe::Arc;
 use vfs::{AnchoredPath, FileId};
 
 use crate::db::{line_index_db::LineIndexDb, workspace_symbol_index_db::WorkspaceSymbolIndexDb};
 
+/// The concrete IDE Salsa database: pure, memoized computation over the input
+/// sources. Overlay and parse-deps live in
+/// [`crate::incrementality::ProductStore`] owned by the
+/// [`crate::analysis_host::AnalysisHost`].
 #[salsa::db]
 #[derive(Clone)]
 pub struct RootDb {
@@ -33,10 +37,10 @@ impl SourceRootDb for RootDb {}
 impl PreprocDb for RootDb {}
 
 #[salsa::db]
-impl HirDefDb for RootDb {}
+impl DesignGraphDb for RootDb {}
 
 #[salsa::db]
-impl TyDb for RootDb {}
+impl HirDefDb for RootDb {}
 
 #[salsa::db]
 impl LineIndexDb for RootDb {}
@@ -78,8 +82,12 @@ impl RootDb {
     }
 }
 
-pub const DEFAULT_PARSE_LRU_CAP: usize = 128;
-impl RootDb {}
+/// Default memo capacity for per-file parse/HIR queries. Salsa revalidation
+/// recomputes evicted memos after a revision bump, so a capacity below the
+/// project's per-file working set turns incremental rebuilds into repeated
+/// re-parse/re-lower work. 1024 covers small-to-medium projects without
+/// pinning an unbounded number of parse trees.
+pub const DEFAULT_PARSE_LRU_CAP: usize = 1024;
 
 // RootDb is the concrete IDE database; expose the workspace query surface
 // without maintaining a second set of forwarding methods.

@@ -75,7 +75,7 @@ pub struct AstIdMap {
 }
 
 impl AstIdMap {
-    pub(crate) fn from_source(tree: &SyntaxTree) -> Self {
+    pub fn from_source(tree: &SyntaxTree) -> Self {
         let mut candidates = Vec::new();
         let mut paths: Vec<StablePath> = Vec::new();
         let mut child_counts: Vec<FxHashMap<SyntaxKind, u32>> = Vec::new();

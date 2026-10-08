@@ -107,7 +107,13 @@ impl DefOriginLoc {
 
     pub fn name(self, db: &dyn HirDefDb) -> Option<SmolStr> {
         match self {
-            DefOriginLoc::Module(owner) => db.body(owner).name.clone(),
+            // Named structural owners keep their identity on the owner table.
+            // Reading the name must not lower a body: `$unit` and header
+            // intern project these owners into `DefId`s before any body query.
+            DefOriginLoc::Module(owner)
+            | DefOriginLoc::Block(owner)
+            | DefOriginLoc::GenerateBlock(owner)
+            | DefOriginLoc::Subroutine(owner) => owner.name(db),
             DefOriginLoc::Config(InFile { value, file_id }) => GetRef::get(
                 db.body(db.owner_table(file_id).file_owner().expect("file owner")).as_ref(),
                 value,
@@ -126,9 +132,6 @@ impl DefOriginLoc {
             )
             .name
             .clone(),
-            DefOriginLoc::Block(owner) => owner.name(db),
-            DefOriginLoc::GenerateBlock(owner) => db.body(owner).name.clone(),
-            DefOriginLoc::Subroutine(owner) => db.subroutine(owner).name.clone(),
             DefOriginLoc::SubroutinePort(OwnerRef { cont_id: subroutine, value }) => {
                 db.subroutine(subroutine).ports.get(value.0 as usize)?.name.clone()
             }
@@ -558,21 +561,45 @@ impl DefId {
     /// The owner seam deliberately exposes only owner kinds that have a
     /// language-level definition. Procedural owners and lexical scopes remain
     /// owners without a `DefId`.
+    ///
+    /// Header-shaped owners (module, generate block, block, subroutine) intern
+    /// from the owner table only. Their `LocalDefId` is the first row
+    /// [`definition_table`] later allocates for that owner, so a subsequent
+    /// body-backed lookup yields the same `DefId`. Checker, covergroup, and
+    /// clocking still need the lowered body because their origin is an arena
+    /// id inside that body.
     pub fn from_owner(db: &dyn HirDefDb, owner: OwnerId) -> Option<Self> {
-        let origin = match owner.kind(db) {
-            OwnerKind::Module => Some(DefOriginLoc::Module(owner)),
-            OwnerKind::GenerateBlock => Some(DefOriginLoc::GenerateBlock(owner)),
-            OwnerKind::Block => Some(DefOriginLoc::Block(owner)),
-            OwnerKind::Subroutine => Some(DefOriginLoc::Subroutine(owner)),
-            OwnerKind::Checker => owner.as_checker(db).map(DefOriginLoc::Checker),
-            OwnerKind::Covergroup => owner.as_covergroup(db).map(DefOriginLoc::Covergroup),
-            OwnerKind::ClockingBlock => {
-                owner.as_clocking_block(db).map(DefOriginLoc::ClockingBlock)
+        match owner.kind(db) {
+            OwnerKind::Module
+            | OwnerKind::GenerateBlock
+            | OwnerKind::Block
+            | OwnerKind::Subroutine => Some(Self::from_owner_header(db, owner)),
+            OwnerKind::Checker => owner.as_checker(db).map(|origin| Self::from_source(db, origin)),
+            OwnerKind::Covergroup => {
+                owner.as_covergroup(db).map(|origin| Self::from_source(db, origin))
             }
-            OwnerKind::AnonymousProgram => None,
-            OwnerKind::File | OwnerKind::ProceduralBlock => None,
-        }?;
-        Some(Self::from_source(db, origin))
+            OwnerKind::ClockingBlock => {
+                owner.as_clocking_block(db).map(|origin| Self::from_source(db, origin))
+            }
+            OwnerKind::AnonymousProgram | OwnerKind::File | OwnerKind::ProceduralBlock => None,
+        }
+    }
+
+    fn from_owner_header(db: &dyn HirDefDb, owner: OwnerId) -> Self {
+        let loc = match owner.kind(db) {
+            OwnerKind::Module => DefOriginLoc::Module(owner),
+            OwnerKind::GenerateBlock => DefOriginLoc::GenerateBlock(owner),
+            OwnerKind::Block => DefOriginLoc::Block(owner),
+            OwnerKind::Subroutine => DefOriginLoc::Subroutine(owner),
+            other => {
+                unreachable!("header intern is only for named structural owners, got {other:?}")
+            }
+        };
+        let local = LocalDefId(DefinitionKey {
+            name: DefinitionNameKey { kind: loc.clone().kind(db), name: loc.name(db) },
+            ordinal: 0,
+        });
+        Self(InternedDefId::new(db, owner, local))
     }
 
     /// Construct a canonical definition from a typed source representation.

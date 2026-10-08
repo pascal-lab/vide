@@ -88,7 +88,7 @@ impl Ord for OwnerId {
     }
 }
 /// One entry of the per-file [`OwnerTable`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OwnerData {
     pub id: OwnerId,
     pub source: SourceAstId,
@@ -106,6 +106,7 @@ pub struct OwnerTable {
     owners: Vec<OwnerData>,
     by_id: FxHashMap<OwnerId, usize>,
     by_source: FxHashMap<(SourceAstId, OwnerKind), OwnerId>,
+    by_name_kind: FxHashMap<(SmolStr, OwnerKind), SmallVec<[OwnerId; 1]>>,
 }
 
 impl OwnerTable {
@@ -133,6 +134,11 @@ impl OwnerTable {
 
     pub fn owner_by_ast(&self, ast_id: SourceAstId, kind: OwnerKind) -> Option<OwnerId> {
         self.by_source.get(&(ast_id, kind)).copied()
+    }
+
+    /// Owners of this `(name, kind)`, in source order. Does not scan the table.
+    pub fn owners_named(&self, name: &str, kind: OwnerKind) -> &[OwnerId] {
+        self.by_name_kind.get(&(SmolStr::new(name), kind)).map(SmallVec::as_slice).unwrap_or(&[])
     }
 }
 
@@ -169,18 +175,22 @@ impl<'db> OwnerTableBuilder<'db> {
             let parent = self.stack.last().copied();
             let owner = OwnerId::new(self.db, self.file_id, ast_id, kind);
             let index = self.table.owners.len();
+            let name = owner_name(node, kind);
             self.table.owners.push(OwnerData {
                 id: owner,
                 source: ast_id,
                 kind,
                 parent,
-                name: owner_name(node, kind),
+                name: name.clone(),
                 module_kind: owner_module_kind(node, kind),
             });
             let replaced = self.table.by_id.insert(owner, index);
             debug_assert!(replaced.is_none(), "duplicate owner identity");
             let replaced = self.table.by_source.insert((ast_id, kind), owner);
             debug_assert!(replaced.is_none(), "duplicate owner source key");
+            if !name.is_empty() {
+                self.table.by_name_kind.entry((name, kind)).or_default().push(owner);
+            }
             self.stack.push(owner);
         }
     }
@@ -202,6 +212,15 @@ pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTab
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
     let ast_ids = crate::ast_id_map::ast_id_map(db, file);
+    Arc::new(build_owner_table(db, file_id, &tree, &ast_ids))
+}
+
+pub(crate) fn build_owner_table(
+    db: &dyn HirDefDb,
+    file_id: HirFileId,
+    tree: &syntax::SyntaxTree,
+    ast_ids: &crate::ast_id_map::AstIdMap,
+) -> OwnerTable {
     let root = tree.root();
     assert!(
         matches!(root.kind(), SyntaxKind::COMPILATION_UNIT | SyntaxKind::LIBRARY_MAP),
@@ -222,7 +241,7 @@ pub(crate) fn owner_table(db: &dyn HirDefDb, file: SyntaxFileId) -> Arc<OwnerTab
             _ => {}
         }
     }
-    Arc::new(builder.finish())
+    builder.finish()
 }
 
 pub(crate) fn set_owner_table_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
@@ -378,6 +397,9 @@ mod tests {
     impl PreprocDb for TestDb {}
 
     #[salsa::db]
+    impl crate::db::DesignGraphDb for TestDb {}
+
+    #[salsa::db]
     impl HirDefDb for TestDb {}
 
     impl std::ops::Deref for TestDb {
@@ -435,6 +457,34 @@ mod tests {
     fn abs_path(path: &str) -> AbsPathBuf {
         let prefix = if cfg!(windows) { "C:/repo" } else { "/repo" };
         AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
+    }
+
+    #[test]
+    fn a_class_is_a_syntax_record_not_an_owner() {
+        let db = db_with_root_text(
+            r#"
+module m;
+  class C extends Base;
+    int value;
+    function void tick();
+    endfunction
+  endclass
+endmodule
+"#,
+        );
+        let table = db.owner_table(HirFileId::File(TOP));
+        assert!(
+            table.owners().iter().all(|owner| owner.name.as_str() != "C"),
+            "a class is not interned as an owner"
+        );
+        let module = *table.owners_named("m", OwnerKind::Module).first().expect("module owner");
+        let body = db.body(module);
+        let class = body.classes.values().next().expect("class syntax record");
+        assert_eq!(class.name.as_deref(), Some("C"));
+        assert_eq!(class.base_class_name.as_deref(), Some("Base"));
+        assert_eq!(class.members.len(), 2);
+        assert_eq!(class.members[0].kind, crate::aggregate::ClassMemberKind::Property);
+        assert_eq!(class.members[1].kind, crate::aggregate::ClassMemberKind::Method);
     }
 
     /// Structural fingerprint of an owner table: (kind, name, parent name).

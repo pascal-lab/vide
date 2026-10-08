@@ -4,7 +4,7 @@ use super::{tables::*, types::*};
 
 impl SourcePreprocModel {
     /// Build the model in a single pass from the slang preprocessor trace.
-    pub fn from_trace(trace: Trace) -> Result<Self, SourcePreprocError> {
+    pub fn from_trace(trace: &Trace) -> Result<Self, SourcePreprocError> {
         Ok(SourcePreprocModelBuilder::collect(trace)?.build())
     }
 

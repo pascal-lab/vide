@@ -19,7 +19,7 @@ fn preprocessor_trace(
     name: &str,
     path: &str,
     options: &SyntaxTreeOptions,
-) -> Trace {
+) -> std::sync::Arc<Trace> {
     SyntaxTree::from_text_with_options_and_trace(root_text, name, path, options).preprocessor_trace
 }
 
@@ -38,7 +38,7 @@ fn source_model(
     };
     let trace = preprocessor_trace(root_text, "source", ROOT_PATH, &options);
     let root_source = PreprocSourceId::from(trace.root_buffer_id);
-    let model = SourcePreprocModel::from_trace(trace).unwrap();
+    let model = SourcePreprocModel::from_trace(&trace).unwrap();
     let header_source = source_by_path_suffix(&model, "defs.vh");
     (model, root_source, header_source)
 }
@@ -61,7 +61,7 @@ fn source_model_from_root(
 ) -> (SourcePreprocModel, PreprocSourceId) {
     let trace = preprocessor_trace(root_text, "source", ROOT_PATH, &options);
     let root_source = PreprocSourceId::from(trace.root_buffer_id);
-    let model = SourcePreprocModel::from_trace(trace).unwrap();
+    let model = SourcePreprocModel::from_trace(&trace).unwrap();
     (model, root_source)
 }
 

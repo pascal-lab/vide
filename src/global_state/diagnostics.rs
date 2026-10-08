@@ -5,7 +5,15 @@ use lsp_types::Url;
 use rustc_hash::FxHashSet;
 use vfs::FileId;
 
+pub(crate) mod ledger;
 pub(crate) mod publisher;
+pub(crate) mod slang;
+
+pub(crate) use ledger::{
+    AnchoredInstance, DiagnosticLedger, FileDiagnosticState, InstanceLedger, append_freshness_note,
+    edits_ago, freshness_note, project_definition_range,
+};
+pub(crate) use slang::SlangDiagnostics;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct DiagnosticCommitFreshness {
@@ -52,6 +60,18 @@ pub(crate) trait DiagnosticSource: Send + Sync {
     ) -> Vec<lsp_types::Diagnostic> {
         let _ = (file_id, freshness);
         Vec::new()
+    }
+
+    fn lsp_diagnostics_projected(
+        &self,
+        file_id: FileId,
+        freshness: &DiagnosticCommitFreshness,
+        analysis: &ide::analysis::AnalysisSnapshot,
+        i18n: crate::i18n::I18n,
+        line_info: Option<&utils::lines::LineInfo>,
+    ) -> Vec<lsp_types::Diagnostic> {
+        let _ = (analysis, i18n, line_info);
+        self.lsp_diagnostics(file_id, freshness)
     }
 
     fn external_revision(

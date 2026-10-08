@@ -75,7 +75,7 @@ logic [`LEAF_WIDTH-1:0] data;
     };
     let trace = preprocessor_trace(root_text, "source", ROOT_PATH, &options);
     let root_source = PreprocSourceId::from(trace.root_buffer_id);
-    let model = SourcePreprocModel::from_trace(trace).unwrap();
+    let model = SourcePreprocModel::from_trace(&trace).unwrap();
     let leaf_source = source_by_path_suffix(&model, "include/leaf.vh");
 
     let reference = model
@@ -130,7 +130,7 @@ fn source_model_fails_closed_when_directive_event_range_is_missing() {
     };
 
     assert_eq!(
-        SourcePreprocModel::from_trace(trace).unwrap_err(),
+        SourcePreprocModel::from_trace(&trace).unwrap_err(),
         SourcePreprocError::MissingEventRange { source_order: 0, kind: MacroEventKind::Define }
     );
 }

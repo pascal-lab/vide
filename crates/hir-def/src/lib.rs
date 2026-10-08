@@ -50,7 +50,7 @@ pub mod symbol;
 pub mod time_units;
 pub mod ty;
 pub mod typedef;
-pub mod unit_index;
+pub mod unit;
 
 pub(crate) macro impl_arena_getters(
     $container:ty;

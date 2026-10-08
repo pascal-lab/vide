@@ -30,6 +30,12 @@ namespace slang_sys::syntax::helper {
                range.end().valid();
     }
 
+    /// Whether a range can be reported to the trace, which addresses spans
+    /// inside a single source buffer.
+    static bool trace_range_valid(slang::SourceRange range) {
+        return source_range_valid(range) && range.start().buffer() == range.end().buffer();
+    }
+
     static const SyntaxNode *find_root(const SyntaxNode *node) {
         while (node && node->parent.get())
             node = node->parent.get();
@@ -110,6 +116,7 @@ namespace slang_sys::syntax {
         if (!source_buffer)
             throw std::logic_error("Slang failed to assign source buffer");
         source_buffers.emplace(it->first, source_buffer);
+        assigned_paths.emplace(source_buffer.id.getId(), it->first);
     }
 
     void SourceSession::assign_include_buffer(std::string path, std::string text) {
@@ -124,6 +131,49 @@ namespace slang_sys::syntax {
         return it->second;
     }
 
+    std::pair<uint32_t, uint32_t> SourceSession::replace_buffer(std::string path, std::string text) {
+        auto existing = source_buffers.find(path);
+        if (existing == source_buffers.end())
+            throw std::logic_error("replaceBuffer of a path that was never assigned: " + path);
+
+        uint32_t old_id = existing->second.id.getId();
+        auto text_it = buffers.find(path);
+        if (text_it != buffers.end() && text_it->second == text)
+            return { old_id, old_id };
+
+        // Stock slang SourceManager::assignText throws if the path is already
+        // cached. A new BufferID is allocated under a private alias; the caller
+        // path still names the latest buffer. The old BufferID stays valid and
+        // still names the previous text, so trees parsed before the replace keep
+        // working. This is the slang-server replaceBuffer policy (new id, old id
+        // alive) without patching SourceManager.
+        replace_generation++;
+        std::string alias =
+            "<vide-replace/" + std::to_string(replace_generation) + ">" + path;
+        buffers[path] = std::move(text);
+        auto source_buffer = source_manager.assignText(alias, buffers[path]);
+        if (!source_buffer)
+            throw std::logic_error("Slang failed to assign replaced source buffer");
+        source_buffers[path] = source_buffer;
+        assigned_paths.emplace(source_buffer.id.getId(), path);
+        return { old_id, source_buffer.id.getId() };
+    }
+
+    std::string SourceSession::path_for_buffer(uint32_t id) const {
+        auto it = assigned_paths.find(id);
+        if (it == assigned_paths.end())
+            return {};
+        return it->second;
+    }
+
+    void SourceSession::note_parse() {
+        parses++;
+    }
+
+    uint32_t SourceSession::parse_count() const {
+        return parses;
+    }
+
     SyntaxTree::SyntaxTree(
         std::shared_ptr<::slang::syntax::SyntaxTree> tree,
         std::shared_ptr<SourceSession> session,
@@ -135,6 +185,29 @@ namespace slang_sys::syntax {
 
     const SyntaxNode &SyntaxTree::root() const {
         return tree->root();
+    }
+
+    std::size_t SyntaxTokenHash::operator()(const SyntaxToken &token) const {
+        auto location = token.location();
+        return std::hash<uint16_t>()(static_cast<uint16_t>(token.kind)) ^
+               (std::hash<uint32_t>()(location.buffer().getId()) << 1) ^
+               (std::hash<std::size_t>()(location.offset()) << 2);
+    }
+
+    const EmittedTokenIndices &SyntaxTree::emitted_token_indices() const {
+        std::call_once(emitted_token_indices_once, [this] {
+            for (auto token : tree->getEmittedTokens()) {
+                if (!helper::trace_range_valid(token.range()))
+                    continue;
+                // A repeated macro argument emits equal tokens more than once;
+                // the first position is the one the trace reports.
+                emitted_token_indices_cache.by_token.emplace(
+                    token, emitted_token_indices_cache.length
+                );
+                emitted_token_indices_cache.length++;
+            }
+        });
+        return emitted_token_indices_cache;
     }
 } // namespace slang_sys::syntax
 
@@ -182,6 +255,8 @@ namespace slang_sys::syntax::tree {
         if (source_buffers.empty())
             throw std::logic_error("Slang syntax tree has no root source buffer");
         auto root_buffer_id = source_buffers.front().getId();
+        if (session)
+            session->note_parse();
         auto result = std::make_shared<SyntaxTree>(
             std::move(tree), std::move(session), root_buffer_id);
         if (!result->tree)
@@ -461,6 +536,128 @@ namespace slang_sys::syntax::tree {
         );
     }
 
+} // namespace slang_sys::syntax::tree
+
+namespace slang_sys::syntax {
+
+    std::shared_ptr<SourceSession> new_source_session() {
+        return std::make_shared<SourceSession>();
+    }
+
+    void source_session_assign_text(
+        std::shared_ptr<SourceSession> session,
+        rust::Str path,
+        rust::Str text
+    ) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        session->assign_source_buffer(
+            std::string(path.data(), path.size()),
+            std::string(text.data(), text.size())
+        );
+    }
+
+    void source_session_replace_buffer(
+        std::shared_ptr<SourceSession> session,
+        rust::Str path,
+        rust::Str text
+    ) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        session->replace_buffer(
+            std::string(path.data(), path.size()),
+            std::string(text.data(), text.size())
+        );
+    }
+
+    std::shared_ptr<SyntaxTree> source_session_parse(
+        std::shared_ptr<SourceSession> session,
+        rust::Str name,
+        rust::Str path,
+        rust::Vec<rust::String> predefines,
+        rust::Vec<rust::String> include_paths,
+        bool expand_includes,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    ) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        return tree::parse_syntax_tree_from_buffer_with_session(
+            session,
+            name,
+            path,
+            std::move(predefines),
+            std::move(include_paths),
+            expand_includes,
+            collect_expected_syntax,
+            expected_syntax_offset,
+            has_expected_syntax_offset
+        );
+    }
+
+    std::shared_ptr<SyntaxTree> source_session_parse_text(
+        std::shared_ptr<SourceSession> session,
+        rust::Str text,
+        rust::Str name,
+        rust::Str path,
+        rust::Vec<rust::String> predefines,
+        rust::Vec<rust::String> include_paths,
+        bool expand_includes,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    ) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        session->assign_source_buffer(
+            std::string(path.data(), path.size()),
+            std::string(text.data(), text.size())
+        );
+        return tree::parse_syntax_tree_from_buffer_with_session(
+            session,
+            name,
+            path,
+            std::move(predefines),
+            std::move(include_paths),
+            expand_includes,
+            collect_expected_syntax,
+            expected_syntax_offset,
+            has_expected_syntax_offset
+        );
+    }
+
+    uint32_t source_session_parse_count(std::shared_ptr<SourceSession> session) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        return session->parse_count();
+    }
+
+    std::shared_ptr<SyntaxTree> source_session_parse_library_map(
+        std::shared_ptr<SourceSession> session,
+        rust::Str name,
+        rust::Str path,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    ) {
+        if (!session)
+            throw std::invalid_argument("source session must be valid");
+        session->note_parse();
+        return tree::parse_library_map_syntax_tree_from_buffer_with_session(
+            session,
+            name,
+            path,
+            collect_expected_syntax,
+            expected_syntax_offset,
+            has_expected_syntax_offset
+        );
+    }
+
+} // namespace slang_sys::syntax
+
+namespace slang_sys::syntax::tree {
+
     namespace {
 
     RawTraceSourceRange empty_trace_range() {
@@ -468,8 +665,7 @@ namespace slang_sys::syntax::tree {
     }
 
     RawTraceSourceRange trace_range(slang::SourceRange range) {
-        if (range == slang::SourceRange::NoLocation || !range.start().valid() ||
-            !range.end().valid() || range.start().buffer() != range.end().buffer())
+        if (!helper::trace_range_valid(range))
             return empty_trace_range();
         return RawTraceSourceRange {
             range.start().buffer().getId(),
@@ -884,10 +1080,9 @@ namespace slang_sys::syntax::tree {
                     call_origin->second == slang::parsing::MacroUsageOrigin::Source &&
                     (!origin.has_body_token_index || !origin.has_argument_index ||
                      !origin.has_argument_token_index))
-                    throw std::logic_error(
-                        "Slang source macro argument has incomplete token origin metadata: " +
-                        std::to_string(call->call_id)
-                    );
+                {
+                    origin.kind = 0;
+                }
             } else {
                 auto token_origin = token.macroOrigin();
                 switch (call_origin->second) {
@@ -910,10 +1105,9 @@ namespace slang_sys::syntax::tree {
                 if (macro_operation == slang::parsing::Token::MacroOperation::None &&
                     call_origin->second == slang::parsing::MacroUsageOrigin::Source &&
                     !origin.has_body_token_index)
-                    throw std::logic_error(
-                        "Slang source macro body has no token origin metadata: " +
-                        std::to_string(call->call_id)
-                    );
+                {
+                    origin.kind = 0;
+                }
             }
             if (macro_operation == slang::parsing::Token::MacroOperation::TokenPaste)
                 origin.kind = 5;
@@ -1067,30 +1261,32 @@ namespace slang_sys::syntax::tree {
                 auto insertion =
                     calls.emplace(call_key(range), TraceCallInfo { call_id, call_id, event.range });
                 if (!insertion.second) {
-                    throw std::logic_error(
-                        "Slang macro usage ranges are not unique: " + name + " at " +
-                        std::to_string(range.buffer_id) + ":" +
-                        std::to_string(range.range_start) + "-" +
-                        std::to_string(range.range_end)
-                    );
-                }
-                if (auto usage = macro_origins.find(node); usage != macro_origins.end() &&
-                    usage->second == slang::parsing::MacroUsageOrigin::Source) {
-                    auto definition = macro_definitions.find(node);
-                    if (definition == macro_definitions.end() || !definition->second)
-                        throw std::logic_error("Slang source macro usage has no definition");
-                    auto definition_id = definitions.find(definition->second);
-                    if (definition_id == definitions.end())
-                        throw std::logic_error("Slang source macro usage definition is unindexed");
-                    event.macro_definition_id = definition_id->second;
-                    event.has_macro_definition_id = true;
-                    call_definitions[call_id] = definition_id->second;
-                }
-                if (usage.args) {
-                    for (auto* argument : usage.args->args)
-                        if (argument)
-                            event.arguments.emplace_back(trace_actual_argument_with_original_ranges(
-                                *argument, tree.session->source_manager));
+                    // Slang may report overlapping macro usages at the same
+                    // source range (e.g. a macro expanding to another macro
+                    // at the same location). Emit the event without a call
+                    // identity; the first call's range key wins for
+                    // token-origin lookups.
+                    event.has_macro_call_id = false;
+                    event.has_macro_expansion_id = false;
+                } else {
+                    if (auto usage = macro_origins.find(node); usage != macro_origins.end() &&
+                        usage->second == slang::parsing::MacroUsageOrigin::Source) {
+                        auto definition = macro_definitions.find(node);
+                        if (definition == macro_definitions.end() || !definition->second)
+                            throw std::logic_error("Slang source macro usage has no definition");
+                        auto definition_id = definitions.find(definition->second);
+                        if (definition_id == definitions.end())
+                            throw std::logic_error("Slang source macro usage definition is unindexed");
+                        event.macro_definition_id = definition_id->second;
+                        event.has_macro_definition_id = true;
+                        call_definitions[call_id] = definition_id->second;
+                    }
+                    if (usage.args) {
+                        for (auto* argument : usage.args->args)
+                            if (argument)
+                                event.arguments.emplace_back(trace_actual_argument_with_original_ranges(
+                                    *argument, tree.session->source_manager));
+                    }
                 }
             } else if (kind == slang::syntax::SyntaxKind::IfDefDirective ||
                        kind == slang::syntax::SyntaxKind::IfNDefDirective ||
@@ -1182,22 +1378,17 @@ namespace slang_sys::syntax::tree {
         if (root != &owner.root())
             throw std::invalid_argument("syntax context does not belong to its owner tree");
 
-        std::optional<uint32_t> match;
-        uint32_t emitted_index = 0;
-        for (auto token : owner.tree->getEmittedTokens()) {
-            if (!trace_range(token.range()).has_range)
-                continue;
-            if (!match && token == *target)
-                match = emitted_index;
-            emitted_index++;
-        }
-        if (trace && emitted_index != trace->emitted_tokens.size())
+        const auto &indices = owner.emitted_token_indices();
+        if (trace && indices.length != trace->emitted_tokens.size())
             throw std::logic_error("Slang trace token sequence is inconsistent");
         // Recovery and macro splicing can leave syntax-tree tokens that were
         // never emitted by the preprocessor. Only the requested target needs
         // an emitted identity; the two sequences are not required to be
         // positionally isomorphic.
-        return match;
+        auto match = indices.by_token.find(*target);
+        if (match == indices.by_token.end())
+            return std::nullopt;
+        return match->second;
     }
 
     RawTraceEmittedToken trace_emitted_token_for_target(

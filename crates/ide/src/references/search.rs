@@ -1,28 +1,34 @@
 use base_db::source_root::SourceRootId;
 use hir_def::{
     container::InFile,
+    db::HirDefDb,
     def_id::DefId,
     has_source::HasSource,
     module::ModuleKind,
     owner::{OwnerId, OwnerKind},
 };
-use hir_semantics::semantics::Semantics;
-use hir_ty::db::TyDb;
+use hir_semantics::semantics::SemanticsImpl;
 use nohash_hasher::IntMap;
 use preproc_expand::{file::HirFileId, macro_file::macro_file_call_site};
 use rustc_hash::FxHashMap;
-use syntax::{SyntaxTokenWithParent, ptr::SyntaxTokenPtr};
+use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange, ptr::SyntaxTokenPtr};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
 use super::{ReferenceCategory, ReferencesConfig};
 use crate::{
     ScopeVisibility,
-    db::{
-        root_db::RootDb,
-        workspace_symbol_index_db::{WorkspaceSymbolIndexDb, source_root_semantic_index_for_root},
+    analysis::AnalysisContext,
+    db::workspace_symbol_index_db::WorkspaceSymbolIndexDb,
+    definitions::DefinitionClass,
+    reference_support::{
+        ReferenceContext,
+        build::{
+            ContainerCache, ScopeChainCache, definition_class_for_token, definition_ranges_for,
+            reference_context, token_in_special_context,
+        },
     },
-    semantic_index::{ReferenceContext, SemanticReference},
+    semantic_target::preproc::{EmittedTokenIndex, emit_token_index},
 };
 
 /// A search scope is a set of files and ranges within those files that should
@@ -130,8 +136,12 @@ impl SearchScope {
         self.0.keys().all(|candidate| *candidate == file_id)
     }
 
+    pub(crate) fn files(&self) -> impl Iterator<Item = FileId> + '_ {
+        self.0.keys().copied()
+    }
+
     /// The single file of the scope, if it covers exactly one file.
-    fn single_file_id(&self) -> Option<FileId> {
+    pub(crate) fn single_file_id(&self) -> Option<FileId> {
         let mut keys = self.0.keys();
         let first = keys.next()?;
         keys.next().is_none().then_some(*first)
@@ -156,9 +166,9 @@ impl SearchScope {
     }
 }
 
-pub(crate) struct ReferencesCtx<'a, 'b> {
-    sema: &'a Semantics<'a, RootDb>,
-    def: &'b DefId,
+pub(crate) struct ReferencesCtx<'a> {
+    db: &'a AnalysisContext<'a>,
+    def: DefId,
     scope: SearchScope,
 }
 
@@ -171,15 +181,6 @@ pub(crate) struct ReferenceToken {
 }
 
 impl ReferenceToken {
-    pub(crate) fn from_semantic_reference(reference: &SemanticReference) -> Self {
-        Self {
-            ptr: reference.ptr,
-            range: reference.range,
-            category: reference.category,
-            context: reference.context.clone(),
-        }
-    }
-
     pub fn range(&self) -> TextRange {
         self.range
     }
@@ -197,71 +198,179 @@ impl ReferenceToken {
     }
 }
 
-impl<'a, 'b> ReferencesCtx<'a, 'b> {
+impl<'a> ReferencesCtx<'a> {
     const FILE_REF_CAPACITY: usize = 8;
 
-    pub(crate) fn new(
-        sema: &'a Semantics<'a, RootDb>,
-        def: &'b DefId,
-        cfg: ReferencesConfig,
-    ) -> Self {
-        let scope = SearchScope::new(sema.db, def, cfg);
-        Self { sema, def, scope }
+    pub(crate) fn new(db: &'a AnalysisContext<'a>, def: &DefId, cfg: ReferencesConfig) -> Self {
+        let scope = SearchScope::new(db.db, def, cfg);
+        Self { db, def: *def, scope }
     }
 
     pub(crate) fn search(&self) -> IntMap<FileId, Vec<ReferenceToken>> {
-        search_references(self.sema.db, self.def, self.scope.clone())
+        search_references(self.db, &self.def, self.scope.clone())
     }
 }
 
-/// Collects the references of `def` inside `scope`. The work is shared by
-/// find-references, document highlight, rename and the recursive rename
-/// closure query; it only touches salsa queries, so it can run on a `dyn`
-/// database.
+/// Collects the references of `def` inside `scope`.
+///
+/// Candidate files are those whose `FileFacts` mention the identifier text.
+/// Resolution happens on demand; there is no workspace `DefId` map.
 pub(crate) fn search_references(
-    db: &dyn WorkspaceSymbolIndexDb,
+    db: &AnalysisContext<'_>,
     def: &DefId,
     scope: SearchScope,
 ) -> IntMap<FileId, Vec<ReferenceToken>> {
     let mut res: IntMap<_, Vec<_>> = IntMap::default();
+    let Some(name) = def.name(db.db) else {
+        return res;
+    };
 
-    // Single-file scopes (document highlight, single-file rename) read
-    // the file's own index directly and skip the root merge pass.
     if let Some(file_id) = scope.single_file_id() {
         db.unwind_if_revision_cancelled();
-        let index = db.file_semantic_index(file_id);
-        let Some(group) = index.references_for_definition(*def) else {
-            return res;
-        };
-        for reference in group.references().iter() {
-            if !scope.contains(reference.file_id, reference.range) {
-                continue;
-            }
-            res.entry(reference.file_id)
-                .or_insert_with(|| Vec::with_capacity(ReferencesCtx::FILE_REF_CAPACITY))
-                .push(ReferenceToken::from_semantic_reference(reference));
-        }
+        collect_file_references(db, file_id, def, &name, &scope, &mut res);
         return res;
     }
 
-    for source_root_id in scope.source_root_ids(db) {
+    for source_root_id in scope.source_root_ids(db.db) {
         db.unwind_if_revision_cancelled();
-        let index = source_root_semantic_index_for_root(db, source_root_id);
-        let Some(group) = index.references_for_definition(*def) else {
-            continue;
-        };
-
-        for reference in group.references.iter() {
-            if !scope.contains(reference.file_id, reference.range) {
+        for file_id in files_for_root(db, source_root_id) {
+            if scope.range_for_file(file_id).is_none() {
                 continue;
             }
-            res.entry(reference.file_id)
-                .or_insert_with(|| Vec::with_capacity(ReferencesCtx::FILE_REF_CAPACITY))
-                .push(ReferenceToken::from_semantic_reference(reference));
+            db.unwind_if_revision_cancelled();
+            collect_file_references(db, file_id, def, &name, &scope, &mut res);
         }
     }
 
     res
+}
+
+/// Compilation-plan files of `source_root_id`, not every VFS path.
+fn files_for_root(ctx: &AnalysisContext<'_>, source_root_id: SourceRootId) -> Vec<FileId> {
+    let plan = ctx.compilation_plan_for_root(source_root_id);
+    let mut files: Vec<FileId> = plan
+        .all_file_ids()
+        .into_iter()
+        .filter(|&file_id| ctx.source_root_id(file_id) == source_root_id)
+        .collect();
+    files.sort_by_key(|file_id| file_id.index());
+    files.dedup();
+    files
+}
+
+fn collect_file_references(
+    db: &AnalysisContext<'_>,
+    file_id: FileId,
+    def: &DefId,
+    name: &str,
+    scope: &SearchScope,
+    res: &mut IntMap<FileId, Vec<ReferenceToken>>,
+) {
+    let facts = db.file_facts(file_id);
+    if !facts.mentions_name(name) {
+        return;
+    }
+
+    let context = db.resolution();
+    let hir_file_id = HirFileId::from(file_id);
+    let tree = db.parse_file(file_id);
+    let emitted = emit_token_index(tree.root());
+    let text = db.file_text(file_id);
+    let sema = SemanticsImpl::new_with_context(db.db, context.clone());
+    let mut containers = ContainerCache::new();
+    let mut chains = ScopeChainCache::new();
+    let mut conn_port_by_name = FxHashMap::default();
+    let definition_ranges = definition_ranges_for(db.db, *def);
+
+    for mention in facts.mentions_of(name) {
+        if !scope.contains(file_id, mention.range) {
+            continue;
+        }
+        if definition_ranges.iter().any(|definition_range| {
+            definition_range.file_id == file_id && definition_range.range == mention.range
+        }) {
+            continue;
+        }
+        let Some(token) = token_for_mention(&tree, &emitted, mention) else {
+            continue;
+        };
+        let container = containers.container_for(&sema, hir_file_id, token.parent);
+        let Some(class) = definition_class_for_token(
+            db,
+            &sema,
+            hir_file_id,
+            token,
+            container,
+            token_in_special_context(token),
+            &mut chains,
+        ) else {
+            continue;
+        };
+
+        let sides = match &class {
+            DefinitionClass::Definition(found) if found == def => {
+                &[crate::reference_support::ConnSide::Port][..]
+            }
+            DefinitionClass::PortConnShorthand { port, local } if port == def || local == def => {
+                if port == def {
+                    &[crate::reference_support::ConnSide::Port][..]
+                } else {
+                    &[crate::reference_support::ConnSide::Local][..]
+                }
+            }
+            _ => continue,
+        };
+
+        for &side in sides {
+            let reference_context = reference_context(
+                db.db,
+                &sema,
+                context.clone(),
+                hir_file_id,
+                token,
+                &class,
+                container,
+                &mut chains,
+                &mut conn_port_by_name,
+                &text,
+                side,
+            );
+            let tokens = res
+                .entry(file_id)
+                .or_insert_with(|| Vec::with_capacity(ReferencesCtx::FILE_REF_CAPACITY));
+            if tokens.iter().any(|existing| existing.range == mention.range) {
+                continue;
+            }
+            tokens.push(ReferenceToken {
+                ptr: SyntaxTokenPtr::from_token(token),
+                range: mention.range,
+                category: ReferenceCategory::from_tok(token),
+                context: reference_context,
+            });
+        }
+    }
+}
+
+pub(crate) fn token_for_mention<'tree>(
+    tree: &'tree syntax::SyntaxTree,
+    emitted: &EmittedTokenIndex<'tree>,
+    mention: &design_graph::Mention,
+) -> Option<SyntaxTokenWithParent<'tree>> {
+    if let Some(emitted_id) = mention
+        .emitted
+        .and_then(|index| usize::try_from(index).ok())
+        .map(preproc_expand::macro_file::SourceEmittedTokenId::new)
+        && let Some(token) = emitted.get(&emitted_id).and_then(|tokens| {
+            tokens.iter().copied().find(|token| {
+                token.kind() == mention.kind && token.text_range() == Some(mention.range)
+            })
+        })
+    {
+        return Some(token);
+    }
+    // L0 extract and the request parse can disagree on emitted indices when
+    // includes expand. Fall back to (kind, range) rather than dropping the hit.
+    SyntaxTokenPtr::from_kind_range(mention.kind, mention.range).to_token(tree)
 }
 
 /// Resolves a HIR file location to a user-facing source file and range.
@@ -271,7 +380,7 @@ pub(crate) fn search_references(
 /// not a file the user can open. Returns `None` when a macro expansion's call
 /// site cannot be resolved.
 pub(crate) fn resolve_source_range(
-    db: &dyn TyDb,
+    db: &dyn HirDefDb,
     file_id: HirFileId,
     range: TextRange,
 ) -> Option<(FileId, TextRange)> {
@@ -281,5 +390,44 @@ pub(crate) fn resolve_source_range(
             let call_site = macro_file_call_site(db, macro_file)?;
             Some((call_site.call_file_id, call_site.call_range))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use syntax::{has_text_range::HasTextRange, token::TokenKindExt};
+    use utils::line_index::TextSize;
+
+    use crate::{semantic_target::preproc::emit_token_index, test_utils::setup_marked};
+
+    #[test]
+    fn macro_argument_mention_recovers_via_emitted_id() {
+        let text = r#"
+`define NEXT(value) (value + 1)
+module top(input logic /*marker:def*/payload_i);
+  logic active_data;
+  assign active_data = `NEXT(/*marker:arg*/payload_i);
+endmodule
+"#;
+        let (host, file_id, _clean, markers) = setup_marked(text);
+        let db = host.ctx();
+        let arg = utils::line_index::TextRange::new(
+            markers["arg"],
+            markers["arg"] + TextSize::of("payload_i"),
+        );
+        let facts = db.file_facts(file_id);
+        let mention = facts
+            .mentions_of("payload_i")
+            .find(|mention| mention.range == arg)
+            .expect("FileFacts records the macro argument identifier");
+        assert!(mention.emitted.is_some(), "macro-argument tokens have a trace identity");
+
+        let tree = db.parse(preproc_expand::file::HirFileId::from(file_id));
+        let emitted = emit_token_index(tree.root());
+        let token = super::token_for_mention(&tree, &emitted, mention)
+            .expect("emitted-id lookup recovers the argument token");
+        assert!(token.kind().name_like());
+        assert_eq!(token.text_range(), Some(arg));
+        assert_eq!(token.raw_text(), "payload_i");
     }
 }

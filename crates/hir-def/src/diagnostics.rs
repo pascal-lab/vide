@@ -34,7 +34,9 @@ use crate::{
     expr::Expr,
     has_source::HasSource,
     owner::OwnerId,
-    pathres::{NameRef, RefKind, before_reference, resolve_name_at, resolve_wildcard_at},
+    pathres::{
+        NameRef, RefKind, ResolutionContext, before_reference, resolve_name_at, resolve_wildcard_at,
+    },
     proc::Proc,
     source_map::{LoweringDiagnostic, LoweringDiagnosticKind},
     source_projection::SourceProjection,
@@ -44,6 +46,7 @@ use crate::{
 pub(crate) fn file_lowering_diagnostics(
     db: &dyn HirDefDb,
     file: SyntaxFileId,
+    context: &ResolutionContext,
 ) -> Arc<[LoweringDiagnostic]> {
     let file_id = file.hir_file(db);
     let tree = db.parse(file_id);
@@ -67,6 +70,7 @@ pub(crate) fn file_lowering_diagnostics(
     }
     collect_wildcard_activation_conflicts(
         db,
+        context,
         file_owner,
         &references,
         &projection,
@@ -76,6 +80,7 @@ pub(crate) fn file_lowering_diagnostics(
         collect_module(db, owner, &tree, &projection, &mut diagnostics);
         collect_wildcard_activation_conflicts(
             db,
+            context,
             owner,
             &references,
             &projection,
@@ -86,6 +91,7 @@ pub(crate) fn file_lowering_diagnostics(
         for generate_owner in generate_owners {
             collect_wildcard_activation_conflicts(
                 db,
+                context,
                 generate_owner,
                 &references,
                 &projection,
@@ -267,6 +273,7 @@ fn collect_generate_owner_ids(db: &dyn HirDefDb, owner: OwnerId, out: &mut Vec<O
 /// scope is illegal.
 fn collect_wildcard_activation_conflicts(
     db: &dyn HirDefDb,
+    context: &ResolutionContext,
     owner: OwnerId,
     references: &[(OwnerId, Ident, InFile<SourceAstId>)],
     projection: &SourceProjection,
@@ -288,12 +295,13 @@ fn collect_wildcard_activation_conflicts(
                 }
                 let reference = NameRef { position: *ref_position, kind: RefKind::Value };
                 let resolved = [NameContext::Type, NameContext::Value].into_iter().any(|ctx| {
-                    let resolved = resolve_name_at(db, *ref_owner, name, ctx, Some(&reference));
+                    let resolved =
+                        resolve_name_at(db, context, *ref_owner, name, ctx, Some(&reference));
                     if resolved.is_unresolved() {
                         return false;
                     }
                     let (wildcard, activated_scope) =
-                        resolve_wildcard_at(db, *ref_owner, name, ctx, Some(&reference));
+                        resolve_wildcard_at(db, context, *ref_owner, name, ctx, Some(&reference));
                     activated_scope == Some(owner) && resolved == wildcard
                 });
                 resolved
@@ -439,6 +447,9 @@ mod tests {
     impl PreprocDb for TestDb {}
 
     #[salsa::db]
+    impl crate::db::DesignGraphDb for TestDb {}
+
+    #[salsa::db]
     impl HirDefDb for TestDb {}
 
     impl std::ops::Deref for TestDb {
@@ -547,7 +558,8 @@ endmodule
 "#;
         let db = db_with_files(text, None);
 
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             diagnostics.is_empty(),
             "supported assignment patterns and struct types must not be diagnosed: {diagnostics:?}"
@@ -567,7 +579,8 @@ module m(input logic x, y);
 endmodule
 "#;
         let db = db_with_files(text, None);
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             !diagnostics.iter().any(|diag| diag.message == "unsupported expression"),
             "property case expressions must be lowered: {diagnostics:?}"
@@ -581,7 +594,8 @@ endmodule
         // `default_nettype none`.
         let text = "`default_nettype none\nmodule m(output a);\nendmodule\n";
         let db = db_with_files(text, None);
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             diagnostics.iter().any(|diag| diag.message.contains("default_nettype none")),
             "bare output port under `default_nettype none` must be diagnosed: {diagnostics:?}"
@@ -729,7 +743,8 @@ program;
 endprogram
 "#;
         let db = db_with_files(text, None);
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             diagnostics.is_empty(),
             "supported compilation-unit members must not be diagnosed: {diagnostics:?}"
@@ -1127,7 +1142,8 @@ endprogram
     #[test]
     fn invalid_time_units_value_produces_lowering_diagnostic() {
         let db = db_with_files("timeunit 2ns;\n", None);
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             diagnostics
                 .iter()
@@ -1142,7 +1158,8 @@ endprogram
             "module m; default disable iff (1'b0); default disable iff (1'b1); endmodule\n",
             None,
         );
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             diagnostics
                 .iter()
@@ -1155,7 +1172,8 @@ endprogram
     fn default_nettype_none_diagnoses_implicit_nets() {
         let text = "`default_nettype none\nmodule m(input a);\nendmodule\n";
         let db = db_with_files(text, None);
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             diagnostics.iter().any(|diag| diag.message.contains("default_nettype none")),
             "implicit net under `default_nettype none` must be diagnosed: {diagnostics:?}"
@@ -1169,7 +1187,8 @@ endprogram
         // module's later declaration of x is illegal.
         let text = "package p;\nint x;\nendpackage\nmodule m;\nimport p::*;\ninitial begin : blk\n  x = 1;\nend\nint x;\nendmodule\n";
         let db = db_with_files(text, None);
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             diagnostics
                 .iter()
@@ -1184,7 +1203,8 @@ endprogram
         // the wildcard import is never activated and everything is legal.
         let text = "package p;\nint x;\nendpackage\nmodule m;\nimport p::*;\ninitial begin : blk\n  int x;\n  x = 1;\nend\nendmodule\n";
         let db = db_with_files(text, None);
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             !diagnostics
                 .iter()
@@ -1197,7 +1217,8 @@ endprogram
     fn wildcard_without_reference_is_legal() {
         let text = "package p;\nint x;\nendpackage\nmodule m;\nimport p::*;\nint x;\nendmodule\n";
         let db = db_with_files(text, None);
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             !diagnostics
                 .iter()
@@ -1210,7 +1231,8 @@ endprogram
     fn explicit_import_conflicting_with_declaration_is_diagnosed() {
         let text = "package p;\nint x;\nendpackage\nmodule m;\nint x;\nimport p::x;\nendmodule\n";
         let db = db_with_files(text, None);
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             diagnostics.iter().any(|diag| diag.message.contains("conflicts with a declaration")),
             "explicit import of a declared name must be diagnosed: {diagnostics:?}"
@@ -1221,7 +1243,8 @@ endprogram
     fn explicit_import_conflicting_across_packages_is_diagnosed() {
         let text = "package p;\nint x;\nendpackage\npackage q;\nint x;\nendpackage\nmodule m;\nimport p::x;\nimport q::x;\nendmodule\n";
         let db = db_with_files(text, None);
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             diagnostics.iter().any(|diag| diag.message.contains("another explicit import")),
             "explicit imports of one name from two packages must be diagnosed: {diagnostics:?}"
@@ -1232,7 +1255,8 @@ endprogram
     fn legal_imports_produce_no_conflict_diagnostics() {
         let text = "package p;\nint x;\nendpackage\npackage q;\nint y;\nendpackage\nmodule m;\nimport p::x;\nimport q::*;\nendmodule\n";
         let db = db_with_files(text, None);
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             !diagnostics.iter().any(|diag| diag.message.contains("conflicts")),
             "legal imports must not conflict: {diagnostics:?}"
@@ -1244,7 +1268,8 @@ endprogram
         let text = "module m;\ninitial begin\n  foreach (arr[i]) x = 1;\nend\nendmodule\n";
         let db = db_with_files(text, None);
 
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             !diagnostics.iter().any(|diag| diag.message == "unsupported statement"),
             "lowered foreach statements must not be diagnosed: {diagnostics:?}"
@@ -1256,7 +1281,8 @@ endprogram
         let text = "module m;\n`include \"defs.vh\"\nendmodule\n";
         let db = db_with_files(text, Some("struct { logic a; } value;\n"));
 
-        let diagnostics = db.file_lowering_diagnostics(HirFileId::File(TOP));
+        let diagnostics =
+            db.file_lowering_diagnostics(HirFileId::File(TOP), &crate::unit::test_resolution(&db));
         assert!(
             diagnostics.is_empty(),
             "included struct types must be lowered without diagnostics: {diagnostics:?}"

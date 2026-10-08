@@ -3,11 +3,9 @@ source: crates/ide/src/verilog_2005.rs
 expression: normalize_hover_snapshot(module_hover.info.as_str())
 ---
 ```systemverilog
-module child #(
-    parameter logic WIDTH = 8
-) (
-    input wire logic clk
-)
+module child #(parameter WIDTH = 8) (
+  input wire clk
+);
 ```
 
 

@@ -1,13 +1,13 @@
 use std::sync::LazyLock;
 
 use hir_def::{
+    db::HirDefDb,
     expr::data_ty::{BuiltinDataTy, DataTy},
     module::port::{NonAnsiPort, PortDirection, Ports},
     owner::OwnerId,
     symbol::NameContext,
 };
 use hir_semantics::semantics::Semantics;
-use hir_ty::db::TyDb;
 use regex::{Regex, RegexBuilder};
 use smallvec::SmallVec;
 use utils::text_edit::TextRange;
@@ -104,7 +104,7 @@ pub(super) fn collect_port(
 }
 
 pub(super) fn add_port_token(
-    _db: &dyn TyDb,
+    _db: &dyn HirDefDb,
     name: &str,
     dir: Option<PortDirection>,
     ty: DataTy,

@@ -1,16 +1,16 @@
 use hir_def::container::InFile;
-use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
 use preproc_expand::{
     file::HirFileId,
     preproc::{IncludeDirective, IncludeTarget, MacroDefinition, MacroParamDefinition},
 };
-use syntax::SyntaxTokenWithParent;
+use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange};
 use utils::line_index::{TextRange, TextSize, covering_range};
 use vfs::FileId;
 
 use crate::{
     FilePosition, RangeInfo,
+    analysis::AnalysisContext,
     db::root_db::RootDb,
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
@@ -21,25 +21,27 @@ use crate::{
 };
 
 pub(crate) fn goto_definition(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let sema = Semantics::new(db);
-    let parsed_file = sema.parse_file(file_id);
+    if let Some(target) = crate::design_unit::goto_definition(db, FilePosition { file_id, offset })
+    {
+        return Some(target);
+    }
+    let tree = db.parse_file(file_id);
     let target = resolve_semantic_target(
-        db,
+        db.db,
         file_id,
         offset,
-        parsed_file.root(),
+        Some(tree.root()),
         crate::token::navigation_precedence,
     );
-    render_definition_target(db, file_id, &sema, target)
+    render_definition_target(db, file_id, target)
 }
 
 fn render_definition_target(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
-    sema: &Semantics<RootDb>,
     target: TargetResolution<'_>,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let mut ranges = Vec::new();
@@ -49,9 +51,7 @@ fn render_definition_target(
             SemanticTarget::PreprocMacro(target) => render_preproc_definition_target(target),
             SemanticTarget::Include(includes) => render_include_definition_target(db, includes),
             SemanticTarget::Manifest(target) => crate::manifest::definition_target(db, target),
-            SemanticTarget::Source(target) => {
-                render_source_definition_target(db, file_id, sema, target)
-            }
+            SemanticTarget::Source(target) => render_source_definition_target(db, file_id, target),
         }?;
         ranges.push(target.range);
         navs.extend(target.info);
@@ -66,16 +66,15 @@ fn render_definition_target(
 }
 
 fn render_source_definition_target(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
-    sema: &Semantics<RootDb>,
     target: SourceTarget<'_>,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let hir_file_id = file_id.into();
     let (range, tokens) = target.into_parts();
     let navs = tokens
         .into_iter()
-        .filter_map(|token| nav_targets_for_token(db, sema, hir_file_id, token))
+        .filter_map(|token| nav_targets_for_token(db, hir_file_id, token))
         .flatten()
         .unique()
         .collect_vec();
@@ -87,21 +86,114 @@ fn render_source_definition_target(
 }
 
 fn nav_targets_for_token(
-    db: &RootDb,
-    sema: &Semantics<RootDb>,
+    db: &AnalysisContext<'_>,
     hir_file_id: HirFileId,
     token: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
-    handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
-        let navs = DefinitionClass::resolve(sema.db, hir_file_id, token)
-            .into_candidates()
-            .into_iter()
-            .flat_map(|class| class.origins(db))
-            .unique()
-            .filter_map(|def| def.to_nav(db))
-            .collect_vec();
-        (!navs.is_empty()).then_some(navs)
+    handle_ctrl_flow_kw(db.db, hir_file_id, token).or_else(|| {
+        if crate::definitions::is_compilation_name(token) {
+            return compilation_nav(db, hir_file_id, token)
+                .or_else(|| this_file_hir_nav(db, hir_file_id, token));
+        }
+        this_file_hir_nav(db, hir_file_id, token)
+            .or_else(|| compilation_nav(db, hir_file_id, token))
     })
+}
+
+pub(crate) fn this_file_hir_nav(
+    db: &AnalysisContext<'_>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+) -> Option<Vec<NavTarget>> {
+    let file = hir_file_id.as_file()?;
+    let navs = DefinitionClass::resolve(db, hir_file_id, token)
+        .into_candidates()
+        .into_iter()
+        .flat_map(|class| class.origins(db.db))
+        .unique()
+        .filter(|origin| crate::definitions::hir_origin_is_local_or_generated(db.db, file, *origin))
+        .filter_map(|def| def.to_nav(db.db))
+        .map(compact_design_unit_target)
+        .collect_vec();
+    (!navs.is_empty()).then_some(navs)
+}
+
+pub(crate) fn compilation_nav(
+    db: &AnalysisContext<'_>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+) -> Option<Vec<NavTarget>> {
+    slang_scoped_nav(db, hir_file_id, token).or_else(|| slang_symbol_nav(db, hir_file_id, token))
+}
+
+fn slang_symbol_nav(
+    db: &AnalysisContext<'_>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+) -> Option<Vec<NavTarget>> {
+    let file = hir_file_id.as_file()?;
+    let range = token.text_range()?;
+    let crate::compile::QueryStatus::Ready(Some(info)) =
+        crate::elab_lookup::lookup_symbol_at(db, file, usize::from(range.start()))
+    else {
+        return None;
+    };
+    nav_from_symbol_info(db, info)
+}
+
+fn slang_scoped_nav(
+    db: &AnalysisContext<'_>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+) -> Option<Vec<NavTarget>> {
+    let file = hir_file_id.as_file()?;
+    let (left, right) = crate::definitions::colon_colon_query(token)
+        .or_else(|| crate::definitions::dotted_member_query(token))?;
+    let crate::compile::QueryStatus::Ready(Some(info)) =
+        crate::elab_lookup::lookup_scoped_at(db, file, &left, &right)
+    else {
+        return None;
+    };
+    nav_from_symbol_info(db, info)
+}
+
+fn nav_from_symbol_info(
+    db: &AnalysisContext<'_>,
+    info: slang_sys::compilation::SymbolInfo,
+) -> Option<Vec<NavTarget>> {
+    if info.def_file.is_empty() {
+        return None;
+    }
+    let file_id = crate::anchor::file_id_for_slang_path(db.db, &info.def_file);
+    let start = utils::line_index::TextSize::from(info.def_offset as u32);
+    let len = utils::line_index::TextSize::from(info.name.len() as u32);
+    let focus = utils::line_index::TextRange::new(start, start + len);
+    Some(vec![NavTarget {
+        file_id,
+        full_range: focus,
+        focus_range: Some(focus),
+        name: Some(smol_str::SmolStr::from(info.name.as_str())),
+        kind: None,
+        container_name: None,
+        description: None,
+    }])
+}
+
+fn compact_design_unit_target(mut target: NavTarget) -> NavTarget {
+    if matches!(
+        target.kind,
+        Some(
+            crate::DefKind::Module
+                | crate::DefKind::Interface
+                | crate::DefKind::Program
+                | crate::DefKind::Checker
+                | crate::DefKind::Covergroup
+        )
+    ) && let Some(focus_range) = target.focus_range
+    {
+        target.full_range = focus_range;
+    }
+    target
 }
 
 fn render_preproc_definition_target(
@@ -185,11 +277,11 @@ fn render_include_definition_target(
 }
 
 fn handle_ctrl_flow_kw(
-    sema: &Semantics<RootDb>,
+    db: &RootDb,
     file_id: HirFileId,
     tp @ SyntaxTokenWithParent { .. }: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
     let (beg, _) = crate::token::ctrl_flow_pair(tp)?;
     let tok = InFile::new(file_id, beg);
-    Some(vec![tok.to_nav(sema.db)?])
+    Some(vec![tok.to_nav(db)?])
 }

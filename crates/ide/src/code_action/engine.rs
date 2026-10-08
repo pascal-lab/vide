@@ -1,12 +1,11 @@
-use hir_semantics::semantics::Semantics;
 use utils::text_edit::TextRange;
 use vfs::FileId;
 
 use super::{CodeAction, CodeActionCollector, CodeActionCtx, CodeActionResolveStrategy, handlers};
-use crate::{db::root_db::RootDb, diagnostics::Diagnostic};
+use crate::{analysis::AnalysisContext, diagnostics::Diagnostic};
 
 pub(crate) fn code_action(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
     range: TextRange,
     diagnostics: &[Diagnostic],
@@ -15,8 +14,8 @@ pub(crate) fn code_action(
     if db.file_kind(file_id).is_project_manifest() {
         return Vec::new();
     }
-    let sema = Semantics::new(db);
-    let Some(ctx) = CodeActionCtx::new(&sema, file_id, range, diagnostics) else {
+    let sema = db.semantics();
+    let Some(ctx) = CodeActionCtx::new(db, &sema, file_id, range, diagnostics) else {
         return Vec::new();
     };
 

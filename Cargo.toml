@@ -14,9 +14,9 @@ description = "Language server for Verilog and System-Verilog"
 members = [
   ".",
   "crates/base-db",
+  "crates/design-graph",
   "crates/hir-def",
   "crates/hir-semantics",
-  "crates/hir-ty",
   "crates/ide",
   "crates/preproc",
   "crates/preproc-expand",
@@ -78,9 +78,9 @@ triomphe.workspace = true
 
 [workspace.dependencies]
 base-db = { path = "./crates/base-db/", version = "0.0.0" }
+design-graph = { path = "./crates/design-graph/", version = "0.0.0" }
 hir-def = { path = "./crates/hir-def/", version = "0.0.0" }
 hir-semantics = { path = "./crates/hir-semantics/", version = "0.0.0" }
-hir-ty = { path = "./crates/hir-ty/", version = "0.0.0" }
 ide = { path = "./crates/ide/", version = "0.0.0" }
 preproc = { path = "./crates/preproc/", version = "0.0.0" }
 preproc-expand = { path = "./crates/preproc-expand/", version = "0.0.0" }

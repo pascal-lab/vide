@@ -194,6 +194,7 @@ impl GlobalState {
             Event::Lsp(msg) => match msg {
                 Message::Request(request) => {
                     self.client.register_incoming(loop_start, &request);
+                    self.commit_pending_vfs();
                     self.dispatch_request(router, request);
                 }
                 Message::Notification(notification) => {
@@ -356,6 +357,15 @@ impl GlobalState {
             Task::Qihe(task) => self.handle_qihe_task(task),
             Task::SemanticCompiler(task) => self.handle_semantic_compiler_task(task),
         }
+    }
+
+    /// Apply queued VFS messages before a request snapshot is taken, so the
+    /// request does not start on a revision that the next turn will write.
+    fn commit_pending_vfs(&mut self) {
+        while let Ok(msg) = self.workspace.vfs_loader.receiver.try_recv() {
+            self.process_vfs_msg(msg);
+        }
+        let _ = self.process_changes();
     }
 
     fn handle_vfs_msg(&mut self, msg: vfs_loader::Message) {

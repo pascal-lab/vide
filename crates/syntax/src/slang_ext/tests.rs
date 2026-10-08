@@ -32,3 +32,22 @@ endmodule
     };
     assert_eq!(tok.kind(), TokenKind::INTEGER_LITERAL);
 }
+
+fn tree(text: &str) -> SyntaxTree {
+    SyntaxTree::from_file_in_memory(text, "t.sv", "t.sv")
+}
+
+#[test]
+fn plain_module_has_no_directive_trivia() {
+    assert!(!tree("module m;\nendmodule\n").root().has_directive_trivia());
+}
+
+#[test]
+fn define_include_ifdef_and_macro_use_have_directive_trivia() {
+    assert!(tree("`define W 8\nmodule m;\nendmodule\n").root().has_directive_trivia());
+    assert!(tree("`include \"a.svh\"\nmodule m;\nendmodule\n").root().has_directive_trivia());
+    assert!(tree("`ifdef W\nmodule m;\nendmodule\n`endif\n").root().has_directive_trivia());
+    assert!(
+        tree("module m;\n  logic [`UNKNOWN-1:0] x;\nendmodule\n").root().has_directive_trivia()
+    );
+}

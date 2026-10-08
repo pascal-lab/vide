@@ -3,12 +3,7 @@ source: crates/ide/src/verilog_2005.rs
 expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 ```systemverilog
-module mux2X1 (
-    in0,
-    in1,
-    sel,
-    out
-)
+module mux2X1(in0, in1, sel, out);
 ```
 
 

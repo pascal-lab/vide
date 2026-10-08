@@ -1,6 +1,7 @@
 use std::ops::Deref;
 
 use base_db::salsa;
+pub use design_graph::DesignGraphDb;
 use preproc_expand::{db::PreprocDb, file::HirFileId};
 use triomphe::Arc;
 use utils::text_edit::TextSize;
@@ -9,7 +10,6 @@ use crate::{
     ast_id_map::{self, AstIdMap, SyntaxFileId},
     body::{self, Body},
     def_id::{self, DefinitionTable},
-    design_map,
     design_map::PackageExports,
     diagnostics,
     item_tree::{self, ItemTree, ItemTreeItem, Signature},
@@ -18,11 +18,10 @@ use crate::{
     source_map::Lowered,
     source_projection::{self, SourceProjection},
     subroutine::Subroutine,
-    unit_index,
 };
 
 #[salsa::db]
-pub trait HirDefDb: PreprocDb {}
+pub trait HirDefDb: PreprocDb + DesignGraphDb {}
 
 // Salsa attaches tracked query methods to `dyn Db`; keep the lower-layer
 // surface available on composed database trait objects without forwarding.
@@ -90,8 +89,9 @@ impl dyn HirDefDb + '_ {
     pub fn file_lowering_diagnostics(
         &self,
         file_id: HirFileId,
+        context: &crate::pathres::ResolutionContext,
     ) -> Arc<[crate::source_map::LoweringDiagnostic]> {
-        diagnostics::file_lowering_diagnostics(self, self.syntax_file(file_id))
+        diagnostics::file_lowering_diagnostics(self, self.syntax_file(file_id), context)
     }
 
     pub fn scope(&self, owner: OwnerId) -> Arc<crate::symbol::ScopeData> {
@@ -102,8 +102,8 @@ impl dyn HirDefDb + '_ {
         crate::scope::unit_scope(self)
     }
 
-    pub fn unit_index(&self) -> Arc<crate::unit_index::UnitIndex> {
-        unit_index::unit_index(self)
+    pub fn file_facts(&self, file_id: vfs::FileId) -> Arc<design_graph::FileFacts> {
+        <dyn DesignGraphDb>::file_facts(self, file_id)
     }
 
     pub fn subroutine(&self, owner: OwnerId) -> Arc<Subroutine> {
@@ -116,12 +116,21 @@ impl dyn HirDefDb + '_ {
         )
     }
 
-    pub fn package_export_signature(&self, package_owner: OwnerId) -> Arc<PackageExports> {
-        self.package_exports(package_owner)
+    pub fn package_export_signature(
+        &self,
+        context: &crate::pathres::ResolutionContext,
+        package_owner: OwnerId,
+    ) -> Arc<PackageExports> {
+        self.package_exports(context, package_owner)
     }
 
-    pub fn package_exports(&self, package_owner: OwnerId) -> Arc<PackageExports> {
-        self.design_map()
+    pub fn package_exports(
+        &self,
+        context: &crate::pathres::ResolutionContext,
+        package_owner: OwnerId,
+    ) -> Arc<PackageExports> {
+        context
+            .design_map(self)
             .package_exports(package_owner)
             .expect("package owner must be present in the design map")
     }
@@ -133,10 +142,6 @@ impl dyn HirDefDb + '_ {
     ) -> Arc<[(TextSize, Option<crate::ty::NetKind>)]> {
         crate::ty::default_nettype_directives(self, self.syntax_file(file_id))
     }
-
-    pub fn design_map(&self) -> Arc<crate::design_map::DesignMap> {
-        crate::design_map::design_map(self)
-    }
 }
 
 /// Sets the LRU capacity of the tracked HIR queries.
@@ -144,10 +149,9 @@ pub fn set_lru_capacity(db: &mut dyn HirDefDb, capacity: usize) {
     ast_id_map::set_ast_id_map_lru_capacity(db, capacity);
     body::set_body_lru_capacity(db, capacity);
     def_id::set_definition_table_lru_capacity(db, capacity);
-    design_map::set_lru_capacity(db, capacity);
     item_tree::set_item_tree_lru_capacity(db, capacity);
+    design_graph::set_file_facts_lru_capacity(db, capacity);
     owner::set_owner_table_lru_capacity(db, capacity);
-    unit_index::set_lru_capacity(db, capacity);
     scope::set_scope_lru_capacity(db, capacity);
     source_projection::set_source_projection_lru_capacity(db, capacity);
     crate::region_tree::set_region_tree_lru_capacity(db, capacity);

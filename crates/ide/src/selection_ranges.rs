@@ -1,4 +1,3 @@
-use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
 use preproc_expand::file::HirFileId;
 use syntax::{
@@ -8,16 +7,16 @@ use syntax::{
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use crate::{FilePosition, db::root_db::RootDb};
+use crate::{FilePosition, analysis::AnalysisContext, db::root_db::RootDb};
 
 pub(crate) fn selection_ranges(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Vec<TextRange> {
     if db.file_kind(file_id).is_project_manifest() {
-        return crate::manifest::selection_ranges(db, FilePosition { file_id, offset });
+        return crate::manifest::selection_ranges(db.db, FilePosition { file_id, offset });
     }
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let Some(root) = parsed_file.root() else {
         return vec![TextRange::empty(offset)];
@@ -192,9 +191,9 @@ mod tests {
     use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
     use super::selection_ranges;
-    use crate::{FilePosition, db::root_db::RootDb};
+    use crate::{FilePosition, analysis_host::AnalysisHost};
 
-    fn db_with_file(text: &str) -> (RootDb, FileId) {
+    fn db_with_file(text: &str) -> (AnalysisHost, FileId) {
         let file_id = FileId::from_raw(0);
         let path = VfsPath::new_virtual_path("/test.sv".to_owned());
 
@@ -206,9 +205,9 @@ mod tests {
         change.set_roots(vec![root]);
         change.add_changed_file(ChangedFile::create(file_id, text));
 
-        let mut db = RootDb::new(None);
-        change.apply(&mut db);
-        (db, file_id)
+        let mut host = AnalysisHost::default();
+        host.apply_change(change);
+        (host, file_id)
     }
 
     #[test]
@@ -237,7 +236,8 @@ mod tests {
             ),
             ("at token boundary", "module top;\n  assign y = a + b;\nendmodule\n", 31),
         ] {
-            let (db, file_id) = db_with_file(text);
+            let (host, file_id) = db_with_file(text);
+            let db = host.ctx();
             let ranges = selection_ranges(&db, FilePosition { file_id, offset: offset.into() });
             writeln!(&mut report, "{name}: {ranges:?}").unwrap();
         }

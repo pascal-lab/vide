@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 base-db.workspace = true
+design-graph.workspace = true
 itertools.workspace = true
 la-arena.workspace = true
 parking_lot.workspace = true

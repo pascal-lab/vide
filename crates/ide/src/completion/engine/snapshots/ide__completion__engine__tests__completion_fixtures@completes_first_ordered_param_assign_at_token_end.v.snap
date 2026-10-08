@@ -1,5 +1,6 @@
 ---
 source: crates/ide/src/completion/engine/tests.rs
+assertion_line: 191
 expression: items
 input_file: crates/ide/src/completion/engine/fixtures/completes_first_ordered_param_assign_at_token_end.v
 ---
@@ -10,6 +11,17 @@ input_file: crates/ide/src/completion/engine/fixtures/completes_first_ordered_pa
         edit: Some(
             TextEditItem {
                 ins: "P4",
+                del: 137..138,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "P8",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "P8",
                 del: 137..138,
             },
         ),

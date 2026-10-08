@@ -20,6 +20,7 @@ use vfs::{AnchoredPath, FileId, FileSet, VfsPath};
 
 use super::*;
 use crate::{
+    compilation_plan::include_buffers_for_file,
     db::PreprocDb,
     macro_file::{MacroFileId, macro_files_at_offset},
 };

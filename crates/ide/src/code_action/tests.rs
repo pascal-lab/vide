@@ -5,7 +5,7 @@ use utils::text_edit::{TextRange, TextSize};
 use vfs::{ChangedFile, FileId, FileSet, VfsPath};
 
 use super::*;
-use crate::db::root_db::RootDb;
+use crate::analysis_host::AnalysisHost;
 
 struct CodeActionFixture {
     action: FixtureAction,
@@ -100,15 +100,15 @@ fn parse_fixture_repair(value: &str, path: &Path) -> RepairKind {
     }
 }
 
-fn db_with_file(text: &str) -> (RootDb, FileId, TextSize) {
+fn db_with_file(text: &str) -> (AnalysisHost, FileId, TextSize) {
     let marker = "/*caret*/";
     let offset = text.find(marker).expect("missing caret marker");
     let text = text.replace(marker, "");
-    let (db, file_id) = db_with_text(&text);
-    (db, file_id, TextSize::from(offset as u32))
+    let (host, file_id) = db_with_text(&text);
+    (host, file_id, TextSize::from(offset as u32))
 }
 
-fn db_with_text(text: &str) -> (RootDb, FileId) {
+fn db_with_text(text: &str) -> (AnalysisHost, FileId) {
     let file_id = FileId::from_raw(0);
     let mut file_set = FileSet::default();
     file_set.insert(file_id, VfsPath::new_virtual_path("/test.sv".to_owned()));
@@ -117,16 +117,16 @@ fn db_with_text(text: &str) -> (RootDb, FileId) {
     change.set_roots(vec![SourceRoot::new_local(file_set)]);
     change.add_changed_file(ChangedFile::create(file_id, text));
 
-    let mut db = RootDb::new(None);
-    db.apply_change(change);
-    (db, file_id)
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    (host, file_id)
 }
 
 fn apply_action(text: &str, repair: RepairKind) -> Option<String> {
-    let (db, file_id, offset) = db_with_file(text);
+    let (host, file_id, offset) = db_with_file(text);
     let diagnostics = vec![diagnostic_for_repair(repair, TextRange::empty(offset))];
     let actions = code_action(
-        &db,
+        &host.ctx(),
         file_id,
         utils::text_edit::TextRange::empty(offset),
         &diagnostics,
@@ -168,9 +168,9 @@ fn apply_action_without_diagnostics_by(
     text: &str,
     pred: impl Fn(&CodeAction) -> bool,
 ) -> Option<String> {
-    let (db, file_id, offset) = db_with_file(text);
+    let (host, file_id, offset) = db_with_file(text);
     let actions = code_action(
-        &db,
+        &host.ctx(),
         file_id,
         utils::text_edit::TextRange::empty(offset),
         &[],
@@ -195,8 +195,8 @@ fn apply_action_without_diagnostics_with_selection_by(
     pred: impl Fn(&CodeAction) -> bool,
 ) -> Option<String> {
     let (mut text, range) = text_with_selection_range(text);
-    let (db, file_id) = db_with_text(&text);
-    let actions = code_action(&db, file_id, range, &[], CodeActionResolveStrategy::All);
+    let (host, file_id) = db_with_text(&text);
+    let actions = code_action(&host.ctx(), file_id, range, &[], CodeActionResolveStrategy::All);
     let action = actions.into_iter().find(pred)?;
     let edit = action.source_change?.text_edits.remove(&file_id)?;
     edit.apply(&mut text);
@@ -205,8 +205,8 @@ fn apply_action_without_diagnostics_with_selection_by(
 
 fn action_labels_without_diagnostics_with_selection(text: &str) -> Vec<String> {
     let (text, range) = text_with_selection_range(text);
-    let (db, file_id) = db_with_text(&text);
-    code_action(&db, file_id, range, &[], CodeActionResolveStrategy::All)
+    let (host, file_id) = db_with_text(&text);
+    code_action(&host.ctx(), file_id, range, &[], CodeActionResolveStrategy::All)
         .into_iter()
         .map(|action| action.label)
         .collect()
@@ -288,10 +288,10 @@ fn diagnostic_for_repair(repair: RepairKind, range: TextRange) -> crate::diagnos
 }
 
 fn action_labels(text: &str, repair: RepairKind) -> Vec<String> {
-    let (db, file_id, offset) = db_with_file(text);
+    let (host, file_id, offset) = db_with_file(text);
     let diagnostics = vec![diagnostic_for_repair(repair, TextRange::empty(offset))];
     code_action(
-        &db,
+        &host.ctx(),
         file_id,
         utils::text_edit::TextRange::empty(offset),
         &diagnostics,
@@ -303,9 +303,9 @@ fn action_labels(text: &str, repair: RepairKind) -> Vec<String> {
 }
 
 fn action_labels_without_diagnostics(text: &str) -> Vec<String> {
-    let (db, file_id, offset) = db_with_file(text);
+    let (host, file_id, offset) = db_with_file(text);
     code_action(
-        &db,
+        &host.ctx(),
         file_id,
         utils::text_edit::TextRange::empty(offset),
         &[],
@@ -336,10 +336,10 @@ fn action_labels_for_case(case: &LabelCase) -> Vec<String> {
         LabelCaseKind::Selection => action_labels_without_diagnostics_with_selection(case.text),
         LabelCaseKind::Repair(repair) => action_labels(case.text, repair),
         LabelCaseKind::MismatchedRepair(repair) => {
-            let (db, file_id, offset) = db_with_file(case.text);
+            let (host, file_id, offset) = db_with_file(case.text);
             let diagnostics = vec![diagnostic_for_repair(repair, TextRange::empty(offset))];
             code_action(
-                &db,
+                &host.ctx(),
                 file_id,
                 TextRange::empty(offset),
                 &diagnostics,
@@ -622,12 +622,12 @@ fn expected_token_repair_uses_diagnostic_range() {
     let text = "/*caret*/module top;\nlogic a\nendmodule\n";
     let clean_text = text.replace("/*caret*/", "");
     let diagnostic_offset = TextSize::from(clean_text.find("\nendmodule").unwrap() as u32);
-    let (db, file_id, offset) = db_with_file(text);
+    let (host, file_id, offset) = db_with_file(text);
     let mut diagnostic =
         diagnostic_for_repair(RepairKind::InsertExpectedToken, TextRange::empty(diagnostic_offset));
     diagnostic.range = TextRange::empty(diagnostic_offset);
     let actions = code_action(
-        &db,
+        &host.ctx(),
         file_id,
         TextRange::empty(offset),
         &[diagnostic],

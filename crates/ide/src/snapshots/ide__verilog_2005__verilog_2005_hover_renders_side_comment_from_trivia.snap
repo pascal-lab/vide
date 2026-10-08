@@ -1,17 +1,8 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 2397
 expression: normalize_hover_snapshot(hover.info.as_str())
 ---
 ```systemverilog
-wire logic sig
+logic
 ```
-
-
----
-
-in `side_comment_ctx` from [feature.v](<feature.v#L3>)
-
----
-
-Documentation
-side comment from trivia

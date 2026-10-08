@@ -1,14 +1,8 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 2569
 expression: normalize_hover_snapshot(instance_hover.info.as_str())
 ---
 ```systemverilog
-instance u_if of bus_if
-
-interface bus_if ()
+bus_if
 ```
-
-
----
-
-in `top` from [feature.v](<feature.v#L8>)

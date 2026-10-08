@@ -8,7 +8,6 @@ use std::{
 use anyhow::Context as _;
 use base_db::source_db::SourceDb;
 use dissimilar::Chunk;
-use hir_semantics::semantics::Semantics;
 use itertools::Itertools;
 use syntax::{
     SyntaxCursor, SyntaxCursorExt, SyntaxKind, SyntaxTrivia, Trivia, has_text_range::HasTextRange,
@@ -24,7 +23,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{FilePosition, db::root_db::RootDb};
+use crate::{FilePosition, analysis::AnalysisContext, db::root_db::RootDb};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -55,7 +54,7 @@ impl FmtConfig {
 }
 
 pub(crate) fn format(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     file_id: FileId,
     line_range: Option<Range<usize>>,
     LineInfo { ending, .. }: &LineInfo,
@@ -63,7 +62,7 @@ pub(crate) fn format(
     cancellation: &CancellationToken,
 ) -> anyhow::Result<Option<TextEdit>> {
     if db.file_kind(file_id).is_project_manifest() {
-        return crate::manifest::format(db, file_id, line_range.is_some(), cancellation);
+        return crate::manifest::format(db.db, file_id, line_range.is_some(), cancellation);
     }
     let text = db.file_text(file_id);
     format_inner(text.as_ref(), line_range, ending, config, cancellation)
@@ -167,8 +166,8 @@ macro_rules! check {
     };
 }
 
-pub fn format_on_type(
-    db: &RootDb,
+pub(crate) fn format_on_type(
+    db: &AnalysisContext<'_>,
     FilePosition { file_id, offset }: FilePosition,
     ch: String,
     line_info: &LineInfo,
@@ -183,7 +182,7 @@ pub fn format_on_type(
         return Ok(None);
     }
 
-    let sema = Semantics::new(db);
+    let sema = db.semantics();
     let parsed_file = sema.parse_file(file_id);
     let Some(root) = parsed_file.root() else {
         return Ok(None);
@@ -220,7 +219,7 @@ pub fn format_on_type(
         && config.provider.supports_range_formatting()
         && let Some(trivias) = trivias.get(..idx.unwrap_or(trivias.len()))
         && let Some(edits) =
-            format_previous(db, file_id, trivias, &mut cursor, line_info, config, cancellation)
+            format_previous(db.db, file_id, trivias, &mut cursor, line_info, config, cancellation)
     {
         res.union(edits)
             .map_err(|_| anyhow::format_err!("on-type formatting produced overlapping edits"))?;
@@ -392,10 +391,11 @@ mod tests {
     use super::{FmtConfig, FormatterProvider, format_on_type};
     use crate::{
         FilePosition,
+        analysis_host::AnalysisHost,
         db::{line_index_db::LineIndexDb, root_db::RootDb},
     };
 
-    fn db_with_file(text: &str) -> (RootDb, FileId) {
+    fn db_with_file(text: &str) -> (AnalysisHost, FileId) {
         let file_id = FileId::from_raw(0);
         let path = VfsPath::new_virtual_path("/test.sv".to_owned());
 
@@ -407,9 +407,9 @@ mod tests {
         change.set_roots(vec![root]);
         change.add_changed_file(ChangedFile::create(file_id, text));
 
-        let mut db = RootDb::new(None);
-        change.apply(&mut db);
-        (db, file_id)
+        let mut host = AnalysisHost::default();
+        host.apply_change(change);
+        (host, file_id)
     }
 
     fn line_info(db: &RootDb, file_id: FileId) -> LineInfo {
@@ -439,7 +439,8 @@ mod tests {
             ("unsupported trigger", "module A;\nendmodule", 0, "."),
             ("first line inside block comment", "/*\n*/", 3, "\n"),
         ] {
-            let (db, file_id) = db_with_file(text);
+            let (host, file_id) = db_with_file(text);
+            let db = host.ctx();
             let edit = format_on_type(
                 &db,
                 FilePosition { file_id, offset: TextSize::from(offset) },

@@ -4,6 +4,20 @@ use vide::browser::BrowserServer;
 
 fn main() {}
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn wasm_build_script_targets_emscripten_and_exports_lsp_message() {
+        let script = include_str!("../scripts/build.mjs");
+        assert!(
+            script.contains("wasm32-unknown-emscripten"),
+            "P4 extra gate: crates/vide-lsp-wasm/scripts/build.mjs"
+        );
+        assert!(script.contains("vide_lsp_message"));
+        assert!(script.contains("vide_lsp_poll"));
+    }
+}
+
 #[cfg(target_os = "emscripten")]
 unsafe extern "C" {
     fn emscripten_get_now() -> f64;

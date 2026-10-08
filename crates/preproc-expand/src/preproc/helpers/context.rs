@@ -9,16 +9,6 @@ pub(in crate::preproc) fn mapped_result(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::preproc) struct SourcePreprocQueryContexts {
     pub(in crate::preproc) model_file_ids: Vec<FileId>,
-    pub(in crate::preproc) status: SourcePreprocContextStatus,
-}
-
-impl SourcePreprocQueryContexts {
-    fn partial_error(&self) -> Option<PreprocError> {
-        let SourcePreprocContextStatus::Partial { skipped_models } = self.status else {
-            return None;
-        };
-        Some(PreprocError::PartialPreprocContextIndex { skipped_models })
-    }
 }
 
 pub(in crate::preproc) fn source_preproc_single_query_contexts(
@@ -43,20 +33,17 @@ pub(in crate::preproc) fn source_preproc_single_query_contexts(
     for model_file_id in relevant.model_file_ids.iter().copied() {
         file_ids.push_unique(model_file_id);
     }
-    SourcePreprocQueryContexts { model_file_ids: file_ids.into_vec(), status: relevant.status }
+    SourcePreprocQueryContexts { model_file_ids: file_ids.into_vec() }
 }
 
 pub(in crate::preproc) fn finish_empty_single_query(
-    contexts: &SourcePreprocQueryContexts,
+    _contexts: &SourcePreprocQueryContexts,
     first_error: Option<PreprocError>,
 ) -> PreprocResult<()> {
-    if let Some(error) = first_error {
-        return Err(error);
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
     }
-    if let Some(error) = contexts.partial_error() {
-        return Err(error);
-    }
-    Ok(())
 }
 
 pub(in crate::preproc) fn record_first_error(
@@ -115,14 +102,6 @@ impl ContextQuery {
                 ?self.file_id,
                 ?error,
                 "preprocessor query failed in one of its contexts"
-            );
-            return Err(error);
-        }
-        if let Some(error) = self.contexts.partial_error() {
-            tracing::warn!(
-                ?self.file_id,
-                ?error,
-                "preprocessor query uses a partial context index"
             );
             return Err(error);
         }

@@ -6,9 +6,10 @@ use syntax::{
 use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
 
-use crate::{db::root_db::RootDb, diagnostics::Diagnostic};
+use crate::{analysis::AnalysisContext, db::root_db::RootDb, diagnostics::Diagnostic};
 
 pub(crate) struct CodeActionCtx<'a> {
+    analysis: &'a AnalysisContext<'a>,
     sema: &'a Semantics<'a, RootDb>,
     file_id: FileId,
     range: TextRange,
@@ -18,6 +19,7 @@ pub(crate) struct CodeActionCtx<'a> {
 
 impl<'a> CodeActionCtx<'a> {
     pub(super) fn new(
+        analysis: &'a AnalysisContext<'a>,
         sema: &'a Semantics<'a, RootDb>,
         file_id: FileId,
         range: TextRange,
@@ -26,7 +28,11 @@ impl<'a> CodeActionCtx<'a> {
         let parsed_file = sema.parse_file(file_id);
         parsed_file.compilation_unit()?;
 
-        Some(Self { sema, file_id, range, diagnostics, parsed_file })
+        Some(Self { analysis, sema, file_id, range, diagnostics, parsed_file })
+    }
+
+    pub(crate) fn analysis(&self) -> &'a AnalysisContext<'a> {
+        self.analysis
     }
 
     pub(crate) fn sema(&self) -> &'a Semantics<'a, RootDb> {

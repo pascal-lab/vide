@@ -3,9 +3,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 
 #include "cxx.h"
 
@@ -30,6 +33,7 @@ namespace slang_sys::syntax {
     struct RawSVInt;
     struct RawOptionalU32;
     struct RawExpectedSyntax;
+    class SyntaxTree;
 
     using SyntaxNode = ::slang::syntax::SyntaxNode;
     using SyntaxToken = ::slang::parsing::Token;
@@ -43,14 +47,79 @@ namespace slang_sys::syntax {
         void assign_include_buffer(std::string path, std::string text);
         void assign_source_buffer(std::string path, std::string text);
         slang::SourceBuffer source_buffer(std::string_view path) const;
+        std::pair<uint32_t, uint32_t> replace_buffer(std::string path, std::string text);
+        std::string path_for_buffer(uint32_t id) const;
+        void note_parse();
+        uint32_t parse_count() const;
 
       private:
         std::unordered_map<std::string, std::string> buffers;
         std::unordered_map<std::string, slang::SourceBuffer> source_buffers;
+        std::unordered_map<uint32_t, std::string> assigned_paths;
+        uint32_t replace_generation = 0;
+        uint32_t parses = 0;
     };
+
+    std::shared_ptr<SourceSession> new_source_session();
+    void source_session_assign_text(
+        std::shared_ptr<SourceSession> session,
+        rust::Str path,
+        rust::Str text
+    );
+    void source_session_replace_buffer(
+        std::shared_ptr<SourceSession> session,
+        rust::Str path,
+        rust::Str text
+    );
+    std::shared_ptr<SyntaxTree> source_session_parse(
+        std::shared_ptr<SourceSession> session,
+        rust::Str name,
+        rust::Str path,
+        rust::Vec<rust::String> predefines,
+        rust::Vec<rust::String> include_paths,
+        bool expand_includes,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    );
+    std::shared_ptr<SyntaxTree> source_session_parse_text(
+        std::shared_ptr<SourceSession> session,
+        rust::Str text,
+        rust::Str name,
+        rust::Str path,
+        rust::Vec<rust::String> predefines,
+        rust::Vec<rust::String> include_paths,
+        bool expand_includes,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    );
+    uint32_t source_session_parse_count(std::shared_ptr<SourceSession> session);
+    std::shared_ptr<SyntaxTree> source_session_parse_library_map(
+        std::shared_ptr<SourceSession> session,
+        rust::Str name,
+        rust::Str path,
+        bool collect_expected_syntax,
+        std::size_t expected_syntax_offset,
+        bool has_expected_syntax_offset
+    );
 
     // TODO: Maybe we should expose this data structure to the rust side, rather
     // than pretendint it as a SyntaxTree.
+    // Hashes the public fields that Token equality implies, so equal tokens
+    // always land in the same bucket and `operator==` decides identity.
+    struct SyntaxTokenHash {
+        std::size_t operator()(const SyntaxToken &token) const;
+    };
+
+    struct EmittedTokenIndices {
+        /// First emitted position of each distinct token.
+        std::unordered_map<SyntaxToken, uint32_t, SyntaxTokenHash> by_token;
+        /// Length of the emitted sequence, which repeated macro arguments make
+        /// longer than `by_token`.
+        uint32_t length = 0;
+    };
+
     class SyntaxTree {
       public:
         std::shared_ptr<::slang::syntax::SyntaxTree> tree;
@@ -65,6 +134,16 @@ namespace slang_sys::syntax {
         ~SyntaxTree();
 
         const SyntaxNode &root() const;
+
+        /// Position of each emitted token that carries a source range, keyed by
+        /// token identity. Built once per tree: callers ask for one token at a
+        /// time, and rescanning the emitted stream per token is quadratic in
+        /// file size.
+        const EmittedTokenIndices &emitted_token_indices() const;
+
+      private:
+        mutable std::once_flag emitted_token_indices_once;
+        mutable EmittedTokenIndices emitted_token_indices_cache;
     };
 
     namespace tree {

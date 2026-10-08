@@ -5,12 +5,12 @@ use utils::text_edit::TextSize;
 use super::{candidate::CompletionCandidate, typed_filter::value_candidates_in_module};
 use crate::{
     FilePosition,
+    analysis::AnalysisContext,
     completion::{context::CompletionContext, syntax_keywords},
-    db::root_db::RootDb,
 };
 
 pub(super) fn complete_sensitivity_list(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -28,14 +28,14 @@ pub(super) fn complete_sensitivity_list(
     items
 }
 
-fn module_id_at_offset(db: &RootDb, position: FilePosition) -> Option<OwnerId> {
+fn module_id_at_offset(db: &AnalysisContext<'_>, position: FilePosition) -> Option<OwnerId> {
     let file_id = HirFileId::File(position.file_id);
     let hir_file =
         db.body_with_source_map(db.owner_table(file_id).file_owner().expect("file owner"));
     let mut best: Option<(TextSize, OwnerId)> = None;
 
     for module_id in hir_file.module_owners() {
-        let Some(range) = module_id.source(db).map(|source| source.value.full_range()) else {
+        let Some(range) = module_id.source(db.db).map(|source| source.value.full_range()) else {
             continue;
         };
         if !range.contains(position.offset) && range.end() != position.offset {
@@ -90,7 +90,7 @@ fn push_event_keywords(
 }
 
 fn signal_candidates(
-    db: &RootDb,
+    db: &AnalysisContext<'_>,
     module_id: OwnerId,
     prefix: &str,
     ctx: &CompletionContext,
@@ -98,8 +98,8 @@ fn signal_candidates(
 ) -> Vec<CompletionCandidate> {
     value_candidates_in_module(db, module_id)
         .into_iter()
-        .filter(|(name, _)| name.starts_with(prefix))
-        .map(|(name, _)| {
+        .filter(|name| name.starts_with(prefix))
+        .map(|name| {
             let plain = if wrap_in_parens { format!("({name})") } else { name.clone() };
             CompletionCandidate::text_edit(name, ctx.replacement, plain)
         })

@@ -47,6 +47,9 @@ impl SourceRootDb for TestDb {}
 impl PreprocDb for TestDb {}
 
 #[salsa::db]
+impl hir_def::db::DesignGraphDb for TestDb {}
+
+#[salsa::db]
 impl HirDefDb for TestDb {}
 impl std::ops::Deref for TestDb {
     type Target = dyn HirDefDb;
@@ -178,7 +181,8 @@ fn macro_expanded_module_keeps_macro_hir_file_id() {
 #[test]
 fn semantics_accepts_hir_def_only_database() {
     let db = db_with_root_text("module top; endmodule\n");
-    let parsed = Semantics::new(&db).parse_file(TOP);
+    let parsed =
+        Semantics::new_with_context(&db, hir_def::unit::test_resolution(&db)).parse_file(TOP);
 
     assert!(parsed.compilation_unit().is_some());
 }

@@ -33,10 +33,6 @@ pub enum PreprocError {
         directive_file_id: FileId,
         name_file_id: FileId,
     },
-    /// The preproc context index was partial because some compilation models
-    /// could not be queried; queries that ran were valid but the result is
-    /// not authoritative across the whole project.
-    PartialPreprocContextIndex { skipped_models: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

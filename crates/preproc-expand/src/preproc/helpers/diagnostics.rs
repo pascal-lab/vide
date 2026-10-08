@@ -17,8 +17,8 @@ pub(in crate::preproc) fn diagnostic_target_for_call(
     let Some(trace_call) = source_call.trace_call else {
         return Ok(None);
     };
-    let parsed = db.parsed_compilation_unit(model_file);
-    let Some(trace) = parsed.preprocessor_trace.as_ref() else {
+    let trace_opt = db.preproc_trace(model_file);
+    let Some(trace) = trace_opt.as_ref() else {
         return Ok(None);
     };
     let Some(emitted_range) = db.trace_index(model_file).emitted_range_for_call(trace_call) else {

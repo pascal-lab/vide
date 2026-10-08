@@ -1,20 +1,24 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 2819
 expression: normalize_hover_snapshot(hover.info.as_str())
 ---
-Module reference `child`
-
 ```systemverilog
-child
+module child(input logic a);
 ```
 
 
 ---
 
-ambiguous reference, 2 candidates
+from [feature.v](<feature.v#L2>)
 
 ---
 
-Candidates
-- [feature.v](<feature.v#L2>)
-- [feature.v](<feature.v#L5>)
+```systemverilog
+module child(output logic y);
+```
+
+
+---
+
+from [feature.v](<feature.v#L5>)

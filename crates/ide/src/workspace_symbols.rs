@@ -2,7 +2,7 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 
 use base_db::{source_db::SourceRootDb, source_root::SourceRootId};
 use fst::{IntoStreamer, Streamer};
-use hir_ty::db::TyDb;
+use hir_def::db::HirDefDb;
 use triomphe::Arc;
 use utils::line_index::TextRange;
 use vfs::FileId;
@@ -237,7 +237,7 @@ impl SymbolIndex {
     }
 }
 
-pub(crate) fn file_symbols(db: &dyn TyDb, file_id: FileId) -> Arc<[WorkspaceSymbol]> {
+pub(crate) fn file_symbols(db: &dyn HirDefDb, file_id: FileId) -> Arc<[WorkspaceSymbol]> {
     if db.file_kind(file_id).is_project_manifest() {
         return crate::manifest::workspace_symbols(db, &[file_id], "").into();
     }

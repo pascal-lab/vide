@@ -8,6 +8,7 @@ finished = "Qihe analysis finished with {total} diagnostic(s)."
 failed = "Qihe analysis failed"
 cancelled = "qihe analysis cancelled"
 stale = "Qihe analysis result discarded because the workspace changed."
+based_on_edits = "Based on analysis from {n} edit(s) ago."
 location = "Location: {primary_element}"
 convert_diagnostic_failed = "failed to convert qihe diagnostic"
 prepare_workspace_failed = "failed to prepare qihe workspace"
@@ -27,6 +28,7 @@ invalid_value_many = "invalid config values:\n{errors}"
 
 [diagnostic]
 inactive_preprocessor_branch = "code is inactive due to preprocessor conditionals"
+based_on_edits = "Based on analysis from {n} edit(s) ago."
 
 [diagnostic.ambiguous_module]
 strict = "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
