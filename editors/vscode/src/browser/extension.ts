@@ -8,8 +8,10 @@ import {
   isProjectSourceFileName,
 } from "../projectConfigCommon";
 import {
+  listFuseSocTargetsRequest,
   projectStatusNotification,
   reloadWorkspaceCommand,
+  selectFuseSocProjectRequest,
   showOutputCommand,
   showStatusCommand,
   VideStatusController,
@@ -42,6 +44,14 @@ let videStatusController: VideStatusController | undefined;
 let restartChain: Promise<void> = Promise.resolve();
 let workspaceRestartTimer: ReturnType<typeof setTimeout> | undefined;
 
+interface FuseSocTargetInfo {
+  name: string;
+  description?: string;
+  defaultTool?: string;
+  flow?: string;
+  hasToplevel: boolean;
+}
+
 function log(message: string): void {
   outputChannel?.appendLine(message);
 }
@@ -55,6 +65,86 @@ function requireOutputChannel(): vscode.OutputChannel {
 
 function showOutput(): void {
   requireOutputChannel().show(true);
+}
+
+async function selectFuseSocProject(
+  context: vscode.ExtensionContext,
+  workspaceUri: string,
+): Promise<void> {
+  if (!client) {
+    throw new Error(vscode.l10n.t("Vide language server is not running."));
+  }
+
+  const workspace = vscode.Uri.parse(workspaceUri);
+  const entries = await vscode.workspace.fs.readDirectory(workspace);
+  const candidates = entries
+    .filter(
+      ([name, type]) =>
+        type === vscode.FileType.File && name.toLowerCase().endsWith(".core"),
+    )
+    .map(([name]) => vscode.Uri.joinPath(workspace, name).toString())
+    .sort();
+  if (candidates.length === 0) {
+    throw new Error(vscode.l10n.t("No FuseSoC .core files were found in the workspace."));
+  }
+
+  const coreUri =
+    candidates.length === 1
+      ? candidates[0]
+      : (
+          await vscode.window.showQuickPick(
+            candidates.map((uri) => ({
+              label: vscode.Uri.parse(uri).path.split("/").pop() ?? uri,
+              description: vscode.Uri.parse(uri).path,
+              uri,
+            })),
+            {
+              title: vscode.l10n.t("Select FuseSoC Root Core"),
+              placeHolder: vscode.l10n.t(
+                "Multiple .core files were found; choose the project root core",
+              ),
+            },
+          )
+        )?.uri;
+  if (!coreUri) {
+    return;
+  }
+
+  const targets = (await client.request("workspace/executeCommand", {
+    command: listFuseSocTargetsRequest,
+    arguments: [{ workspaceUri, coreUri }],
+  })) as FuseSocTargetInfo[];
+  if (targets.length === 0) {
+    throw new Error(vscode.l10n.t("The selected FuseSoC core does not define any targets."));
+  }
+
+  const selectedTarget = await vscode.window.showQuickPick(
+    targets.map((target) => ({
+      label: target.name,
+      description: [
+        target.description,
+        target.flow ? `flow: ${target.flow}` : undefined,
+        target.defaultTool ? `tool: ${target.defaultTool}` : undefined,
+        target.hasToplevel ? undefined : "no toplevel",
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(" · "),
+      target: target.name,
+    })),
+    {
+      title: vscode.l10n.t("Select FuseSoC Target"),
+      placeHolder: vscode.l10n.t("Choose the target to use for this Vide project"),
+    },
+  );
+  if (!selectedTarget) {
+    return;
+  }
+
+  await client.request("workspace/executeCommand", {
+    command: selectFuseSocProjectRequest,
+    arguments: [{ workspaceUri, coreUri, target: selectedTarget.target }],
+  });
+  await queueRestart(context, "FuseSoC project selection");
 }
 
 async function showLanguageServerErrorMessage(message: string): Promise<void> {
@@ -291,6 +381,7 @@ export async function activate(
 
   videStatusController = new VideStatusController({
     createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
+    selectFuseSocProject: (workspaceUri) => selectFuseSocProject(context, workspaceUri),
     profileDiagnostics: profileTraceEnabled
       ? () => showUnavailableInBrowser("Diagnostics profiling")
       : undefined,

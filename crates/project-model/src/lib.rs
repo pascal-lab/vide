@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use anyhow::{Context, bail};
 use itertools::Itertools;
 use rustc_hash::{FxHashMap, FxHashSet};
+pub use toml_workspace::TomlWorkspace;
 #[cfg(feature = "manifest-schema")]
 pub use toml_workspace::{
     TOML_MANIFEST_SCHEMA_PATH, TOML_MANIFEST_SCHEMA_URL, TOML_MANIFEST_SCHEMA_VERSION,
@@ -23,9 +24,7 @@ use workspace_model::{
     source_root::{SourceRootConfig, SourceRootId, SourceRootRole},
 };
 
-use crate::{
-    macro_def::MacroDef, project_manifest::ProjectManifest, toml_workspace::TomlWorkspace,
-};
+use crate::{macro_def::MacroDef, project_manifest::ProjectManifest};
 
 const DEFAULT_INDEX_SOURCE_PATTERNS: &[&str] = &["**"];
 
@@ -172,8 +171,18 @@ impl Workspace {
                 let toml_workspace = TomlWorkspace::load_from_file(toml)
                     .with_context(|| "failed to load workspace in {manifest:?}")?;
 
-                Self::from_toml(toml_workspace, is_lib)
+                // Check if the vide.toml has a [fusesoc] section — if so,
+                // delegate to FuseSoC loading with the specified core/target.
+                if let Some(fusesoc_cfg) = &toml_workspace.fusesoc {
+                    Self::from_fusesoc_config(&toml_workspace.workspace_root, fusesoc_cfg, is_lib)
+                } else {
+                    Self::from_toml(toml_workspace, is_lib)
+                }
             }
+            ProjectManifest::FuseSocCore(core_path) => {
+                Self::from_fusesoc_core(core_path, None, None, is_lib)
+            }
+            ProjectManifest::FuseSocCoreDir(dir) => Self::from_fusesoc_core_dir(dir, is_lib),
             ProjectManifest::UnconfiguredRoot(path) => {
                 Ok(Self::from_unconfigured_root(path, is_lib))
             }
@@ -190,6 +199,7 @@ impl Workspace {
             include_dirs,
             libraries,
             exclude_patterns,
+            fusesoc: _,
         } = toml;
 
         let kind = WorkspaceKind::from_is_lib(is_lib);
@@ -239,6 +249,142 @@ impl Workspace {
             .then(|| semantic_profile(top_modules, macro_defs, include_dirs, Some(manifest_path)));
 
         Ok(Self { workspace_root, library_paths, kind, roots, semantic_profile })
+    }
+
+    fn from_fusesoc_core(
+        core_path: &AbsPathBuf,
+        target: Option<&str>,
+        flags: Option<&[String]>,
+        is_lib: bool,
+    ) -> anyhow::Result<Self> {
+        let target = target.context(format!(
+            "FuseSoC target must be explicitly selected for root core {core_path}"
+        ))?;
+        let workspace_root = core_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .context("FuseSoC .core path has no parent")?;
+        let resolved = fusesoc_model::cli::load_core(core_path, target, flags.unwrap_or(&[]))
+            .with_context(|| format!("failed to load FuseSoC core through the CLI: {core_path}"))?;
+
+        Self::from_fusesoc_resolved(&workspace_root, core_path, &resolved, is_lib)
+    }
+
+    /// Load a FuseSoC project from a `[fusesoc]` section in vide.toml.
+    fn from_fusesoc_config(
+        workspace_root: &AbsPathBuf,
+        cfg: &crate::toml_workspace::FuseSocTomlConfig,
+        is_lib: bool,
+    ) -> anyhow::Result<Self> {
+        let target = cfg.target.as_deref().context(format!(
+            "FuseSoC target must be explicitly selected in {}/vide.toml",
+            workspace_root
+        ))?;
+        // The `core` field can be a file name or a VLNV.  Try file name first.
+        let core_path = workspace_root.join(&cfg.core);
+        if std::fs::metadata(core_path.as_path()).is_ok() {
+            return Self::from_fusesoc_core(&core_path, Some(target), Some(&cfg.flags), is_lib);
+        }
+
+        // Not a file — treat as a VLNV and let FuseSoC resolve libraries and
+        // dependencies through its own CLI.
+        let resolved = fusesoc_model::cli::load_vlnv(workspace_root, &cfg.core, target, &cfg.flags)
+            .with_context(|| {
+                format!("failed to load FuseSoC VLNV `{}` through the CLI", cfg.core)
+            })?;
+        let core_path = resolved
+            .cores
+            .first()
+            .map(|core| core.core_file.clone())
+            .context("FuseSoC CLI EDAM did not identify the root core file")?;
+
+        Self::from_fusesoc_resolved(workspace_root, &core_path, &resolved, is_lib)
+    }
+
+    /// Refuse to guess the root when a directory contains multiple cores.
+    /// The user must select it in `[fusesoc] core` in `vide.toml`.
+    fn from_fusesoc_core_dir(dir: &AbsPathBuf, is_lib: bool) -> anyhow::Result<Self> {
+        let _ = is_lib;
+        anyhow::bail!(
+            "multiple FuseSoC .core files found in {dir}; select the root core explicitly with [fusesoc]\ncore = \"path/to/top.core\"\n in vide.toml"
+        )
+    }
+
+    /// Build a Workspace from a resolved FuseSoC project.
+    fn from_fusesoc_resolved(
+        workspace_root: &AbsPathBuf,
+        core_path: &AbsPathBuf,
+        resolved: &fusesoc_model::ResolvedProject,
+        is_lib: bool,
+    ) -> anyhow::Result<Self> {
+        use utils::line_index::{TextRange, TextSize};
+
+        use crate::macro_def::{MacroAtom, MacroDef, MacroDefSource};
+
+        let kind = WorkspaceKind::from_is_lib(is_lib);
+
+        let source_files: Vec<AbsPathBuf> =
+            resolved.files.iter().filter(|f| !f.is_include_file).map(|f| f.path.clone()).collect();
+
+        let include_files: Vec<AbsPathBuf> =
+            resolved.files.iter().filter(|f| f.is_include_file).map(|f| f.path.clone()).collect();
+
+        let include_dirs = resolved.include_dirs.clone();
+
+        let all_files: Vec<AbsPathBuf> =
+            source_files.iter().chain(include_files.iter()).cloned().collect();
+        let source = PathMatcher::all_under_roots(all_files.clone());
+
+        let predefine_strings: Vec<String> = resolved
+            .defines
+            .iter()
+            .map(|(k, v)| if v.is_empty() { k.clone() } else { format!("{k}={v}") })
+            .collect();
+
+        let mut macros: FxHashSet<MacroAtom> = FxHashSet::default();
+        let mut sources: Vec<MacroDefSource> = Vec::new();
+        let zero_range = TextRange::new(TextSize::from(0), TextSize::from(0));
+        for s in &predefine_strings {
+            let atom = if let Some((key, value)) = s.split_once('=') {
+                MacroAtom::KeyValue { key: key.into(), value: value.into() }
+            } else {
+                MacroAtom::Flag(s.into())
+            };
+            macros.insert(atom.clone());
+            sources.push(MacroDefSource { atom, range: zero_range });
+        }
+        let macro_defs = MacroDef { macros, sources };
+
+        let root_parts = WorkspaceRootParts {
+            source: source.clone(),
+            source_directories: source,
+            source_files: all_files,
+            extra_files: vec![core_path.clone()],
+            include_dirs: include_dirs.clone(),
+            exclude_prefixes: Vec::new(),
+            exclude_globs: None,
+        };
+
+        let roots =
+            workspace_roots(kind, &ManifestSourcePolicy::Explicit(vec![]), true, root_parts);
+
+        let semantic_profile =
+            roots.iter().any(WorkspaceRoot::contributes_semantic_profile).then(|| {
+                semantic_profile(
+                    resolved.top_modules.clone(),
+                    macro_defs,
+                    include_dirs,
+                    Some(core_path.clone()),
+                )
+            });
+
+        Ok(Self {
+            workspace_root: workspace_root.clone(),
+            library_paths: Vec::new(),
+            kind,
+            roots,
+            semantic_profile,
+        })
     }
 
     fn from_unconfigured_root(path: &AbsPathBuf, is_lib: bool) -> Self {
@@ -623,7 +769,10 @@ struct ProjectManifestIdentitySet {
 impl ProjectManifestIdentitySet {
     fn insert(&mut self, manifest: &ProjectManifest) -> bool {
         let path = match manifest {
-            ProjectManifest::Toml(path) | ProjectManifest::UnconfiguredRoot(path) => path,
+            ProjectManifest::Toml(path)
+            | ProjectManifest::FuseSocCore(path)
+            | ProjectManifest::FuseSocCoreDir(path)
+            | ProjectManifest::UnconfiguredRoot(path) => path,
         };
         self.paths.insert_path(path.as_path())
     }
@@ -1600,5 +1749,100 @@ libraries = ["../pkg"]
         let app_profile_id = project_config.profile_for_root(SourceRootId(0)).unwrap();
         let app_profile = project_config.profile(app_profile_id).unwrap();
         assert_eq!(app_profile.source_roots, vec![SourceRootId(0), SourceRootId(1)]);
+    }
+
+    #[test]
+    fn fusesoc_config_loads_core_with_explicit_target() {
+        let root = TestDir::new("project-model-fusesoc-config");
+        fs::create_dir_all(root.join("rtl")).unwrap();
+        fs::write(
+            root.join("top.core"),
+            "CAPI=2:\nname: v:l:top:1.0\n\nfilesets:\n  rtl:\n    files: [rtl/top.sv : {file_type: systemVerilogSource}]\n\ntargets:\n  fpga:\n    default_tool: icarus\n    filesets: [rtl]\n    toplevel: top\n",
+        )
+        .unwrap();
+        fs::write(root.join("rtl/top.sv"), "module top; endmodule\n").unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            "[fusesoc]\ncore = \"top.core\"\ntarget = \"fpga\"\n",
+        )
+        .unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(model.workspaces.len(), 1);
+        let workspace = &model.workspaces[0];
+        assert_eq!(workspace.root(), &root.path().to_path_buf());
+        assert!(workspace.roots().iter().any(|root| {
+            root.source_files.iter().any(|file| file.as_path().to_string().ends_with("rtl/top.sv"))
+        }));
+        assert_eq!(
+            workspace.semantic_profile().map(|profile| profile.top_modules.clone()),
+            Some(vec!["top".to_owned()])
+        );
+    }
+
+    #[test]
+    fn fusesoc_config_missing_core_is_rejected() {
+        let root = TestDir::new("project-model-fusesoc-missing-core");
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            "[fusesoc]\ntarget = \"fpga\"\n",
+        )
+        .unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+
+        assert!(model.workspaces.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].to_string().contains("fusesoc"),
+            "expected a fusesoc-related error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn fusesoc_config_missing_target_is_rejected() {
+        let root = TestDir::new("project-model-fusesoc-missing-target");
+        fs::write(
+            root.join("top.core"),
+            "CAPI=2:\nname: v:l:top:1.0\ntargets:\n  lint:\n    filesets: []\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            "[fusesoc]\ncore = \"top.core\"\n",
+        )
+        .unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+
+        assert!(model.workspaces.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert!(format!("{:#}", errors[0]).contains("target must be explicitly selected"));
+    }
+
+    #[test]
+    fn fusesoc_multiple_cores_require_explicit_root() {
+        let root = TestDir::new("project-model-fusesoc-multiple-cores");
+        for name in ["a", "b"] {
+            fs::write(
+                root.join(format!("{name}.core")),
+                format!("CAPI=2:\nname: v:l:{name}:1.0\n"),
+            )
+            .unwrap();
+        }
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+
+        assert!(model.workspaces.is_empty());
+        assert_eq!(errors.len(), 1);
+        let error = format!("{:#}", errors[0]);
+        assert!(error.contains("select the root core explicitly"), "unexpected error: {error}");
+        assert!(error.contains("[fusesoc]"));
     }
 }
