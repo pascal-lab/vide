@@ -1,0 +1,57 @@
+---
+title: 1.3.0-beta.2
+description: Vide 1.3.0-beta.2 release notes.
+---
+
+Vide 1.3.0-beta.2 is a prerelease that integrates the Slang v11 frontend,
+broadens SystemVerilog coverage, speeds up semantic indexing, and adds
+first-class editor support for `vide.toml`.
+
+## Highlights
+
+- Migrated the syntax and diagnostic layer to a Slang v11 based backend,
+  including syntax trees, diagnostics, preprocessor traces, and macro source
+  mapping.
+- Added editor tooling for `vide.toml`: completion, hover, formatting,
+  diagnostics, and document symbols.
+- Expanded navigation with type definitions, call hierarchy, module hierarchy,
+  and per-file semantic reference indexes.
+
+## Language support
+
+- Lowering now covers classes, constraints, assertions, properties and
+  sequences, clocking blocks, checkers, covergroups, DPI declarations, bind
+  directives, net types, tagged unions, and statements such as `randcase` and
+  `disable fork`.
+- Compilation unit members, `let` declarations, modport clocking ports, and
+  user-defined net declarations are lowered and indexed.
+- Preprocessor queries fail closed, so partial macro or include context no
+  longer produces misleading completion, hover, or rename results.
+
+## Editor experience
+
+- Signature help for subroutines and system tasks, plus argument hints for
+  system calls.
+- Rename across macros and parameters.
+- Ranked and cancellable workspace symbol search.
+- Folding ranges for checkers and covergroups.
+- Richer hover metadata and more precise diagnostic ranges for macro-expanded
+  code.
+
+## Performance and reliability
+
+- Semantic indexes are built per file and merged at the root instead of
+  rebuilding the whole project.
+- Inference caching, constant-time preprocessor trace token lookup, and bounded
+  LRU caches for macro references.
+- Fixed macOS file watching readiness and Windows absolute path handling.
+
+## Known limitations
+
+- Several SystemVerilog constructs are lowered but not yet fully analyzed, so
+  completion, hover, and navigation can be incomplete for them.
+- Cross-file navigation inside packages still has gaps.
+- This prerelease is distributed through GitHub only; Marketplace and the
+  production documentation site follow the stable release line.
+
+**Full Changelog**: [v1.3.0-beta.1...v1.3.0-beta.2](https://github.com/pascal-lab/vide/compare/v1.3.0-beta.1...v1.3.0-beta.2)

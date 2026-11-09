@@ -1,0 +1,47 @@
+---
+title: 1.3.0-beta.2
+description: Vide 1.3.0-beta.2 更新日志。
+---
+
+Vide 1.3.0-beta.2 是一个预发布版本，接入 Slang v11 前端，扩展 SystemVerilog
+支持范围，加快语义索引，并为 `vide.toml` 提供了一等的编辑器支持。
+
+## 重点变化
+
+- 语法与诊断层迁移到基于 Slang v11 的后端，覆盖语法树、诊断、预处理 trace
+  以及宏来源映射。
+- 为 `vide.toml` 增加补全、悬停、格式化、诊断和文档符号等编辑器能力。
+- 扩展导航能力：类型定义、调用层级、模块层级，以及按文件构建的语义引用索引。
+
+## 语言支持
+
+- lowering 覆盖类、约束、断言、属性与序列、clocking 块、checker、covergroup、
+  DPI 声明、bind 指令、net type、tagged union，以及 `randcase`、`disable fork`
+  等语句。
+- 编译单元成员、`let` 声明、modport clocking 端口和用户自定义 net 声明均可
+  lowering 并建立索引。
+- 预处理查询改为 fail-closed，宏或 include 上下文不完整时不再给出误导性的补全、
+  悬停或重命名结果。
+
+## 编辑器体验
+
+- 子程序和系统任务签名提示，以及系统调用的参数提示。
+- 支持宏和参数参与的重命名。
+- 工作区符号搜索支持排序与取消。
+- checker 和 covergroup 折叠范围。
+- 更丰富的悬停信息，以及宏展开代码更精确的诊断范围。
+
+## 性能与稳定性
+
+- 语义索引按文件构建并在根上合并，不再重建整个工程。
+- 推理缓存、预处理 trace token 的常数时间查询，以及宏引用的有界 LRU 缓存。
+- 修复 macOS 文件监听就绪问题和 Windows 绝对路径处理。
+
+## 已知限制
+
+- 部分 SystemVerilog 语法已 lowering 但尚未完成完整语义分析，相关补全、悬停和
+  跳转可能不完整。
+- package 内部的跨文件跳转仍有缺口。
+- 该预发布版本仅通过 GitHub 分发；Marketplace 和生产文档站点跟随稳定版发布线。
+
+**完整变更**：[v1.3.0-beta.1...v1.3.0-beta.2](https://github.com/pascal-lab/vide/compare/v1.3.0-beta.1...v1.3.0-beta.2)
