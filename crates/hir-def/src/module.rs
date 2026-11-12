@@ -173,6 +173,14 @@ impl LowerModuleCtx<'_> {
             None => {}
         };
 
+        // Imports declared in the module header apply to the whole module, so they
+        // are lowered into the same arena as body-level imports.
+        for import_decl in header.imports().children() {
+            for import in lower_package_imports(import_decl, self.source_id(import_decl.syntax())) {
+                self.store.data.package_imports.alloc(import);
+            }
+        }
+
         for member in decl.members().children() {
             use ast::Member::*;
             let idx: BodyItem = match member {
