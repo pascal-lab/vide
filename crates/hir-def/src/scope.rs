@@ -163,6 +163,30 @@ impl ScopeData {
     }
 }
 
+/// Enum literals declared in a scope are visible in that scope's value
+/// namespace (IEEE 1800-2017 6.19.2), so wildcard imports and package-qualified
+/// literals resolve to their declarations.
+fn insert_enum_members(scope: &mut ScopeData, db: &dyn HirDefDb, owner: OwnerId) {
+    let body = db.body(owner);
+    for (enum_id, enum_def) in body.enums.iter() {
+        for (index, member) in enum_def.members.iter().enumerate() {
+            let Some(name) = &member.name else {
+                continue;
+            };
+            scope.insert_value(
+                name,
+                DefId::from_source(
+                    db,
+                    DefOriginLoc::EnumMember {
+                        enum_id: OwnerRef::new(owner, enum_id),
+                        index: index as u32,
+                    },
+                ),
+            );
+        }
+    }
+}
+
 pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> ScopeData {
     let mut scope = ScopeData::default();
     let file_owner = db.owner_table(file_id).file_owner().expect("file owner must exist");
@@ -180,6 +204,7 @@ pub(crate) fn build_file_scope(db: &dyn HirDefDb, file_id: HirFileId) -> ScopeDa
 
     insert_body_declarators(&mut scope, db, file_owner, body.data_ref(), file_owner);
     insert_body_typedefs(&mut scope, db, file_owner, body.data_ref(), file_owner);
+    insert_enum_members(&mut scope, db, file_owner);
     insert_proc_bodies(&mut scope, db, &hir_file.procs);
 
     for subroutine_owner in hir_file.subroutine_owners() {
@@ -236,6 +261,7 @@ pub(crate) fn build_module_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData
     for (_, import) in module.package_imports.iter() {
         scope.insert_package_import(import);
     }
+    insert_enum_members(&mut scope, db, owner);
     for subroutine_owner in module.subroutine_owners() {
         let subroutine = db.subroutine(subroutine_owner);
         scope.insert_value_opt(&subroutine.name, owner_def_id(db, subroutine_owner));
@@ -374,6 +400,7 @@ pub(crate) fn build_generate_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> S
     }
     insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
     insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
+    insert_enum_members(&mut scope, db, owner);
     for (instance_id, instance) in body.instances.iter() {
         scope.insert_value_opt(&instance.name, def_id(db, OwnerRef::new(owner, instance_id)));
     }
@@ -400,6 +427,7 @@ pub(crate) fn build_subroutine_scope(db: &dyn HirDefDb, owner: OwnerId) -> Scope
 
     insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
     insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
+    insert_enum_members(&mut scope, db, owner);
     insert_body_statements(&mut scope, db, owner, body.data_ref(), owner);
     scope
 }
@@ -409,6 +437,7 @@ pub(crate) fn build_block_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData 
     let mut scope = ScopeData::default();
     insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
     insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
+    insert_enum_members(&mut scope, db, owner);
     insert_body_statements(&mut scope, db, owner, body.data_ref(), owner);
     scope
 }
@@ -426,6 +455,7 @@ pub(crate) fn build_owner_scope(db: &dyn HirDefDb, owner: OwnerId) -> ScopeData 
             let mut scope = ScopeData::default();
             insert_body_declarators(&mut scope, db, owner, body.data_ref(), owner);
             insert_body_typedefs(&mut scope, db, owner, body.data_ref(), owner);
+            insert_enum_members(&mut scope, db, owner);
             insert_body_statements(&mut scope, db, owner, body.data_ref(), owner);
             scope
         }

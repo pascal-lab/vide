@@ -683,6 +683,7 @@ impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
                         .collect(),
                     initializer: declarator.initializer().map(|init| self.lower_expr(init.expr())),
                     random: member.random_qualifier().is_some(),
+                    source: self.source_id(declarator.syntax()),
                 })
                 .collect()
         });
@@ -709,6 +710,7 @@ impl<Store: crate::lower::LoweringStore> LoweringCtx<Store> {
                     .children()
                     .map(|dim| self.lower_dimension(dim))
                     .collect(),
+                source: self.source_id(declarator.syntax()),
             })
             .collect();
         let dimensions =

@@ -45,6 +45,7 @@ impl LowerFileCtx<'_> {
                         .collect(),
                     initializer: declarator.initializer().map(|init| self.lower_expr(init.expr())),
                     random: member.random_qualifier().is_some(),
+                    source: self.source_id(declarator.syntax()),
                 })
                 .collect()
         });

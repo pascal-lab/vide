@@ -159,6 +159,23 @@ fn package_bindings(db: &dyn HirDefDb, package: OwnerId) -> PackageExports {
             exports.insert_type(name, DefId::from_source(db, OwnerRef::new(package, typedef_id)));
         }
     }
+    for (enum_id, enum_def) in body.enums.iter() {
+        for (index, member) in enum_def.members.iter().enumerate() {
+            let Some(name) = &member.name else {
+                continue;
+            };
+            exports.insert_value(
+                name,
+                DefId::from_source(
+                    db,
+                    crate::symbol::DefOriginLoc::EnumMember {
+                        enum_id: OwnerRef::new(package, enum_id),
+                        index: index as u32,
+                    },
+                ),
+            );
+        }
+    }
     for subroutine_owner in body.subroutine_owners() {
         let subroutine = db.subroutine(subroutine_owner);
         if let Some(name) = &subroutine.name {

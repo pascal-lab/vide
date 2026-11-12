@@ -119,6 +119,10 @@ pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
             .as_subroutine_port(db)
             .map(|port| type_of_subroutine_port_impl(db, port))
             .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
+        DefKind::EnumMember | DefKind::StructMember => def_id
+            .data_type(db)
+            .map(|ty| normalize_data_ty(db, def_id.container_id(db), ty))
+            .unwrap_or_else(|| TyResult::new(Ty::Unknown)),
         DefKind::Instance => origin
             .as_instance(db)
             .and_then(|instance| instance_target_def_id(db, instance.cont_id, instance.value))
@@ -158,7 +162,9 @@ pub(crate) fn type_of_def_id(db: &dyn TyDb, def_id: DefId) -> TyResult {
                 | DefKind::Property
                 | DefKind::Sequence
                 | DefKind::Cross
-                | DefKind::Stmt => TyResult::new(Ty::Unknown),
+                | DefKind::Stmt
+                | DefKind::EnumMember
+                | DefKind::StructMember => TyResult::new(Ty::Unknown),
                 DefKind::Primitive
                 | DefKind::NonAnsiPortLabel
                 | DefKind::PortDecl
@@ -262,7 +268,9 @@ fn type_of_non_ansi_port(db: &dyn TyDb, def_id: DefId) -> TyResult {
             | DefKind::Covergroup
             | DefKind::Coverpoint
             | DefKind::Cross
-            | DefKind::Stmt => {}
+            | DefKind::Stmt
+            | DefKind::EnumMember
+            | DefKind::StructMember => {}
             DefKind::Primitive
             | DefKind::NonAnsiPortLabel
             | DefKind::PortDecl
