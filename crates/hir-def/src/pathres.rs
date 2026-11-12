@@ -280,6 +280,13 @@ pub fn resolve_path_at(
     let mut current = resolve_name_at(db, cont_id, first, ctx, reference)
         .or_else(|| resolve_top_level_module_root(db, first, ctx, !rest.is_empty()));
 
+    // Package-qualified paths such as "pkg::LITERAL" resolve their first segment
+    // in the type namespace, so a value-context path needs that fallback before
+    // descending into the package scope.
+    if current.is_unresolved() && ctx != NameContext::Type && !rest.is_empty() {
+        current = resolve_name_at(db, cont_id, first, NameContext::Type, reference);
+    }
+
     for (idx, segment) in rest.iter().enumerate() {
         let segment_ctx = if idx + 1 == rest.len() { ctx } else { NameContext::Value };
         current = resolve_child_name(db, &current, segment, segment_ctx);
@@ -323,11 +330,79 @@ pub fn resolve_child_name(
     ctx: NameContext,
 ) -> Resolution<DefId> {
     parent.and_then(|def_id| {
-        let Some(scope_id) = descend_scope(db, def_id) else {
-            return Resolution::Unresolved;
-        };
-        db.scope(scope_id).lookup(ctx, ident)
+        if let Some(scope_id) = descend_scope(db, def_id) {
+            let resolution = db.scope(scope_id).lookup(ctx, ident);
+            if !resolution.is_unresolved() {
+                return resolution;
+            }
+        }
+        if ctx == NameContext::Value {
+            return resolve_aggregate_member(db, def_id, ident);
+        }
+        Resolution::Unresolved
     })
+}
+
+/// Resolves a member of a struct, union or enum value.
+///
+/// Typedefs are followed so that a variable declared through a typedef still
+/// exposes the aggregate members of its underlying type.
+fn resolve_aggregate_member(db: &dyn HirDefDb, def_id: DefId, ident: &Ident) -> Resolution<DefId> {
+    fn aggregate_of(
+        db: &dyn HirDefDb,
+        def_id: DefId,
+        depth: usize,
+    ) -> Option<crate::expr::data_ty::DataTy> {
+        if depth > 16 {
+            return None;
+        }
+        let ty = def_id.data_type(db)?;
+        match ty {
+            ty @ (crate::expr::data_ty::DataTy::Struct(_)
+            | crate::expr::data_ty::DataTy::Enum(_)) => Some(ty),
+            crate::expr::data_ty::DataTy::Named(named) => {
+                let resolved =
+                    resolve_path(db, def_id.container_id(db), named.segments(), NameContext::Type);
+                aggregate_of(db, resolved.unique()?, depth + 1)
+            }
+            _ => None,
+        }
+    }
+
+    let Some(ty) = aggregate_of(db, def_id, 0) else {
+        return Resolution::Unresolved;
+    };
+    match ty {
+        crate::expr::data_ty::DataTy::Struct(struct_id) => {
+            let data = struct_id.cont_id.data(db);
+            let members = &data.struct_def(struct_id.value).members;
+            let Some(index) = members
+                .iter()
+                .position(|member| member.name.as_ref().is_some_and(|name| name == ident))
+            else {
+                return Resolution::Unresolved;
+            };
+            Resolution::Unique(DefId::from_source(
+                db,
+                crate::symbol::DefOriginLoc::StructMember { struct_id, index: index as u32 },
+            ))
+        }
+        crate::expr::data_ty::DataTy::Enum(enum_id) => {
+            let data = enum_id.cont_id.data(db);
+            let members = &data.enum_def(enum_id.value).members;
+            let Some(index) = members
+                .iter()
+                .position(|member| member.name.as_ref().is_some_and(|name| name == ident))
+            else {
+                return Resolution::Unresolved;
+            };
+            Resolution::Unique(DefId::from_source(
+                db,
+                crate::symbol::DefOriginLoc::EnumMember { enum_id, index: index as u32 },
+            ))
+        }
+        _ => Resolution::Unresolved,
+    }
 }
 pub fn descend_scope(db: &dyn HirDefDb, def_id: DefId) -> Option<OwnerId> {
     let origin = def_id.primary_origin(db);
@@ -641,6 +716,64 @@ mod tests {
             .unwrap_or_else(|| panic!("path {segments:?} should resolve"))
     }
 
+    #[test]
+    fn aggregate_members_resolve_as_definitions() {
+        let db = db_with_root_text(
+            r#"
+package pkg;
+  typedef enum logic [1:0] { UP, STOP } state_e;
+  typedef struct packed {
+    logic ovf;
+    logic [7:0] value;
+  } cnt_t;
+endpackage
+
+module top;
+  import pkg::*;
+  cnt_t c;
+  state_e s;
+  initial begin
+    s = STOP;
+    c.value = 8'h0;
+    c.ovf = 1'b0;
+  end
+endmodule
+"#,
+        );
+        let top = db.unit_index().module_ids(&ident("top")).unique().unwrap();
+
+        assert_eq!(
+            resolved_kind(&db, top, &["pkg", "STOP"], NameContext::Value),
+            DefKind::EnumMember
+        );
+        assert_eq!(resolved_kind(&db, top, &["STOP"], NameContext::Value), DefKind::EnumMember);
+        assert_eq!(
+            resolved_kind(&db, top, &["c", "value"], NameContext::Value),
+            DefKind::StructMember
+        );
+        assert_eq!(
+            resolved_kind(&db, top, &["c", "ovf"], NameContext::Value),
+            DefKind::StructMember
+        );
+    }
+
+    #[test]
+    fn header_imported_enum_literals_resolve() {
+        let db = db_with_root_text(
+            r#"
+package pkg;
+  typedef enum logic [1:0] { UP, STOP } state_e;
+endpackage
+
+module top import pkg::*; ();
+  state_e s;
+  initial s = STOP;
+endmodule
+"#,
+        );
+        let top = db.unit_index().module_ids(&ident("top")).unique().unwrap();
+        assert_eq!(resolved_kind(&db, top, &["STOP"], NameContext::Value), DefKind::EnumMember);
+    }
     #[test]
     fn resolve_path_descends_instances_blocks_and_generate_blocks() {
         let db = db_with_root_text(

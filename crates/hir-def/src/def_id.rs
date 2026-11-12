@@ -173,6 +173,14 @@ impl DefOriginLoc {
             DefOriginLoc::Stmt(OwnerRef { value, cont_id }) => {
                 cont_id.data(db).stmt(value).label.clone()
             }
+            DefOriginLoc::EnumMember { enum_id, index } => {
+                let data = enum_id.cont_id.data(db);
+                data.enum_def(enum_id.value).members.get(index as usize)?.name.clone()
+            }
+            DefOriginLoc::StructMember { struct_id, index } => {
+                let data = struct_id.cont_id.data(db);
+                data.struct_def(struct_id.value).members.get(index as usize)?.name.clone()
+            }
         }
     }
 
@@ -236,6 +244,16 @@ impl DefOriginLoc {
             }
             DefOriginLoc::Coverpoint(point) => owner_source(db, point.cont_id, point.value),
             DefOriginLoc::Cross(cross) => owner_source(db, cross.cont_id, cross.value),
+            DefOriginLoc::EnumMember { enum_id, index } => {
+                let data = enum_id.cont_id.data(db);
+                let member = data.enum_def(enum_id.value).members.get(index as usize)?;
+                Some(InFile::new(enum_id.cont_id.file(db), member.source))
+            }
+            DefOriginLoc::StructMember { struct_id, index } => {
+                let data = struct_id.cont_id.data(db);
+                let member = data.struct_def(struct_id.value).members.get(index as usize)?;
+                Some(InFile::new(struct_id.cont_id.file(db), member.source))
+            }
         }
     }
 
@@ -459,6 +477,33 @@ pub(crate) fn definition_table(db: &dyn HirDefDb, owner: OwnerId) -> Arc<Definit
         }
         OwnerKind::AnonymousProgram => {}
         OwnerKind::File | OwnerKind::ProceduralBlock => {}
+    }
+
+    // Aggregate members are definitions too: enum literals and struct fields need
+    // stable identities so navigation and hover can target their source names.
+    for (enum_id, enum_def) in body.enums.iter() {
+        for (index, member) in enum_def.members.iter().enumerate() {
+            table.insert(
+                db,
+                member.source,
+                DefOriginLoc::EnumMember {
+                    enum_id: OwnerRef::new(owner, enum_id),
+                    index: index as u32,
+                },
+            );
+        }
+    }
+    for (struct_id, struct_def) in body.structs.iter() {
+        for (index, member) in struct_def.members.iter().enumerate() {
+            table.insert(
+                db,
+                member.source,
+                DefOriginLoc::StructMember {
+                    struct_id: OwnerRef::new(owner, struct_id),
+                    index: index as u32,
+                },
+            );
+        }
     }
 
     for (id, source) in sources.config_decl_srcs.iter() {
@@ -705,6 +750,14 @@ impl DefId {
                 .ports
                 .get(port.value.0 as usize)
                 .and_then(|port| port.ty.clone()),
+            DefOriginLoc::EnumMember { enum_id, .. } => Some(DataTy::Enum(*enum_id)),
+            DefOriginLoc::StructMember { struct_id, index } => {
+                let data = struct_id.cont_id.data(db);
+                data.struct_def(struct_id.value)
+                    .members
+                    .get(*index as usize)
+                    .and_then(|member| member.ty.as_ref().map(|ty| ty.value.clone()))
+            }
             _ => None,
         }
     }
@@ -750,6 +803,8 @@ impl DefId {
                 }
             }
             DefOriginLoc::Typedef(_) => Some("Typedef"),
+            DefOriginLoc::EnumMember { .. } => Some("Enum member"),
+            DefOriginLoc::StructMember { .. } => Some("Struct member"),
             DefOriginLoc::Instance(_) => Some("Instance"),
             DefOriginLoc::Modport(_) => Some("Modport"),
             DefOriginLoc::ClockingBlock(_) => Some("Clocking block"),
@@ -788,6 +843,8 @@ fn definition_owner(db: &dyn HirDefDb, loc: &DefOriginLoc) -> OwnerId {
         DefOriginLoc::Sequence(sequence) => sequence.cont_id,
         DefOriginLoc::Coverpoint(coverpoint) => coverpoint.cont_id,
         DefOriginLoc::Cross(cross) => cross.cont_id,
+        DefOriginLoc::EnumMember { enum_id, .. } => enum_id.cont_id,
+        DefOriginLoc::StructMember { struct_id, .. } => struct_id.cont_id,
         DefOriginLoc::Stmt(stmt) => stmt.cont_id,
     }
 }

@@ -263,7 +263,9 @@ pub(crate) fn symbol_kind(symbol_kind: DefKind) -> lsp_types::SymbolKind {
         | DefKind::Port
         | DefKind::PortDecl
         | DefKind::SubroutinePort
-        | DefKind::CheckerPort => LspSymbolKind::FIELD,
+        | DefKind::CheckerPort
+        | DefKind::EnumMember
+        | DefKind::StructMember => LspSymbolKind::FIELD,
         DefKind::Param | DefKind::ParamDecl | DefKind::Specparam | DefKind::Typedef => {
             LspSymbolKind::TYPE_PARAMETER
         }

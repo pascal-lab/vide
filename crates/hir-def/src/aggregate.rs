@@ -36,6 +36,8 @@ pub struct StructMember {
     pub dimensions: SmallVec<[Option<Dimension>; 2]>,
     pub initializer: Option<ExprId>,
     pub random: bool,
+    /// Source of the member declarator, used for navigation.
+    pub source: crate::ast_id_map::SourceAstId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +93,8 @@ pub struct EnumMember {
     pub name: Option<Ident>,
     pub initializer: Option<ExprId>,
     pub dimensions: SmallVec<[Option<Dimension>; 2]>,
+    /// Source of the member declarator, used for navigation.
+    pub source: crate::ast_id_map::SourceAstId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

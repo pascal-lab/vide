@@ -61,6 +61,8 @@ pub enum DefOriginLoc {
     Coverpoint(OwnerRef<CoverpointId>),
     Cross(OwnerRef<CrossId>),
     Stmt(OwnerRef<StmtId>),
+    EnumMember { enum_id: OwnerRef<crate::aggregate::EnumId>, index: u32 },
+    StructMember { struct_id: OwnerRef<crate::aggregate::StructId>, index: u32 },
 }
 
 impl_from! { DefOriginLoc =>
@@ -104,7 +106,7 @@ macro_rules! trivial_kind {
     ($($variant:ident),* $(,)?) => {
         pub fn trivial_kind(&self) -> DefKind {
             match self {
-                $(DefOriginLoc::$variant(_) => DefKind::$variant,)*
+                $(DefOriginLoc::$variant { .. } => DefKind::$variant,)*
                 DefOriginLoc::Module(_) | DefOriginLoc::Decl(_) => {
                     unreachable!("kind requires the database")
                 }
@@ -117,7 +119,7 @@ impl DefOriginLoc {
     trivial_kind! {
         Config, Library, Udp, Block, GenerateBlock, Subroutine, SubroutinePort, NonAnsiPort,
         Typedef, Instance, Modport, ClockingBlock, ClockingSignal, Checker, CheckerPort,
-        Covergroup, Property, Sequence, Coverpoint, Cross, Stmt,
+        Covergroup, Property, Sequence, Coverpoint, Cross, Stmt, EnumMember, StructMember,
     }
 
     /// Canonical semantic owner of the containing scope.
@@ -151,6 +153,8 @@ impl DefOriginLoc {
             | DefOriginLoc::Covergroup(OwnerRef { cont_id, .. })
             | DefOriginLoc::Property(OwnerRef { cont_id, .. })
             | DefOriginLoc::Sequence(OwnerRef { cont_id, .. }) => *cont_id,
+            DefOriginLoc::EnumMember { enum_id, .. } => enum_id.cont_id,
+            DefOriginLoc::StructMember { struct_id, .. } => struct_id.cont_id,
         }
     }
 }
@@ -236,6 +240,8 @@ pub enum DefKind {
     Coverpoint,
     Cross,
     Stmt,
+    EnumMember,
+    StructMember,
     Primitive,
     NonAnsiPortLabel,
     PortDecl,
@@ -290,7 +296,9 @@ impl DefKind {
             | Self::Sequence
             | Self::Covergroup
             | Self::Coverpoint
-            | Self::Cross => Self::Unknown,
+            | Self::Cross
+            | Self::EnumMember
+            | Self::StructMember => Self::Unknown,
             Self::Stmt => Self::Stmt,
             kind => kind,
         }
