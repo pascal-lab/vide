@@ -86,7 +86,9 @@ jobs:
 
   vscode-web-smoke:
     name: VS Code Web Smoke
-    runs-on: ubuntu-latest
+    # Playwright's bundled Chromium does not support ubuntu 26.04 yet; keep this
+    # job on the last LTS image until it does.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: editors/vscode
