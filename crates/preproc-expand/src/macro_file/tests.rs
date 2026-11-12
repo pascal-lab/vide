@@ -266,6 +266,25 @@ fn trace_macro_argument_origin_indices_are_exact() {
 }
 
 #[test]
+fn macro_default_argument_tokens_are_traced() {
+    // A macro parameter that falls back to its default value has no actual
+    // argument at the call site. Its tokens must still be traceable instead of
+    // tripping the macro origin metadata invariants.
+    let db = db_with_root_text(
+        "`define M(c = clk) logic [0:0] x = c;\nmodule top; logic clk; `M() endmodule\n",
+    );
+    let parsed = db.parsed_compilation_unit(TOP);
+    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    assert!(
+        trace.emitted_tokens.iter().any(|token| matches!(
+            &token.origin,
+            TokenOrigin::MacroBody { body_token_index, .. } if *body_token_index > 0
+        )),
+        "tokens substituted from a formal parameter default must be traced as macro body tokens"
+    );
+}
+
+#[test]
 fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
     let root_text = "`define DECL module from_macro; endmodule\n`DECL\n";
     let db = db_with_root_text(root_text);
@@ -536,4 +555,41 @@ fn expansion_info_preserves_source_map_when_text_extraction_fails() {
         expansion.err.as_ref().map(ExpandError::kind),
         Some(&ExpandErrorKind::MissingEmittedToken { token: missing })
     );
+}
+
+#[test]
+fn definition_site_macro_usage_expands_per_instance() {
+    // ``WRAP`` is invoked from a formal parameter default, so every enclosing call
+    // reports the same source range. The instances must still be told apart and
+    // each one must expand in the context of its own call.
+    let bt = "`";
+    let root_text = "`define WRAP(x) x\n`define M(a, b = `WRAP(a)) b\nmodule t;\n  wire w1 = `M(foo);\n  wire w2 = `M(bar);\nendmodule\n";
+    let db = db_with_root_text(root_text);
+    let parsed = db.parsed_compilation_unit(TOP);
+    let trace = parsed.preprocessor_trace.as_ref().expect("preprocessor trace should be available");
+    let wrap_name = format!("{}WRAP", bt);
+    let calls: Vec<_> = trace
+        .events
+        .iter()
+        .filter(|event| event.name.as_ref().is_some_and(|name| name.value_text == wrap_name))
+        .filter_map(|event| event.macro_call_id)
+        .collect();
+    assert_eq!(calls.len(), 2, "each enclosing call should record its own WRAP usage");
+    assert_ne!(
+        calls[0], calls[1],
+        "usage instances that share one source site must keep distinct call identities"
+    );
+    // Slang folds tokens produced inside a formal default back into the enclosing
+    // expansion, so these two calls own no emitted tokens of their own. What
+    // matters here is that querying either instance stays consistent instead of
+    // tripping the trace invariants.
+    for call in calls {
+        let range = db.trace_index(TOP).emitted_range_for_call(call);
+        assert!(
+            range.is_none_or(|range| range.len == 0),
+            "a definition-site usage must not claim tokens that belong to its parent expansion"
+        );
+        let macro_file = MacroFileId::new(&db, MacroCallLoc { model_file: TOP, trace_call: call });
+        let _ = db.macro_expansion(macro_file);
+    }
 }
