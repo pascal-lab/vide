@@ -1555,6 +1555,49 @@ endmodule
     }
 
     #[test]
+    fn module_header_imports_reach_the_module_scope() {
+        let db = db_with_root_text(
+            r#"
+package pkg;
+  typedef logic imported_t;
+  int imported_v;
+endpackage
+
+module header_importer import pkg::*; ();
+  imported_t t;
+  int v;
+endmodule
+"#,
+        );
+
+        let module_id = db
+            .unit_index()
+            .module_ids(&ident("header_importer"))
+            .unique()
+            .expect("module should resolve uniquely");
+
+        let header_scope = db.scope(module_id);
+        assert!(
+            header_scope
+                .imports()
+                .iter()
+                .any(|import| import.package == ident("pkg") && import.name.is_none()),
+            "header import should be recorded on the module scope"
+        );
+
+        let imported_t = resolve_name(&db, module_id, &ident("imported_t"), NameContext::Type);
+        assert!(
+            imported_t.iter().any(|def_id| def_id.kind(&db) == DefKind::Typedef),
+            "header import should make the package typedef resolvable"
+        );
+        let imported_v = resolve_name(&db, module_id, &ident("imported_v"), NameContext::Value);
+        assert!(
+            imported_v.iter().any(|def_id| def_id.kind(&db) == DefKind::Variable),
+            "header import should make package values resolvable"
+        );
+    }
+
+    #[test]
     fn package_imports_resolve_through_export_scope() {
         let db = db_with_root_text(
             r#"
