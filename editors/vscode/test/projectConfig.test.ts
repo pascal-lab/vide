@@ -5,6 +5,7 @@ import * as path from 'node:path';
 
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
+  FUSE_SOC_CORE_FILE_GLOB,
   PROJECT_CONFIG_FILE_GLOB,
   PROJECT_CONFIG_SCHEMA_PATH,
   PROJECT_CONFIG_SCHEMA_URL,
@@ -18,6 +19,7 @@ import {
 test('uses the Vide project config file name', () => {
   assert.equal(PROJECT_CONFIG_FILE_NAME, 'vide.toml');
   assert.equal(PROJECT_CONFIG_FILE_GLOB, '**/vide.toml');
+  assert.equal(FUSE_SOC_CORE_FILE_GLOB, '**/*.core');
 });
 
 test('resolves project config paths under workspace roots', () => {
@@ -34,12 +36,13 @@ test('recognizes project config file names', () => {
   assert.equal(isProjectConfigFileName('other.toml'), false);
 });
 
-test('activates the extension for project manifests', () => {
+test('activates the extension for FuseSoC projects', () => {
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
   ) as { activationEvents?: string[] };
 
   assert.ok(packageJson.activationEvents?.includes('workspaceContains:**/vide.toml'));
+  assert.ok(packageJson.activationEvents?.includes('workspaceContains:**/*.core'));
 });
 
 test('recognizes Verilog and SystemVerilog source file names', () => {

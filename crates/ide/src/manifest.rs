@@ -115,46 +115,88 @@ fn parse_document(text: &str) -> Result<Vec<ManifestEntry>, ManifestParseError> 
         range: error.span().and_then(text_range),
         message: error.to_string(),
     })?;
-    let key_ranges = parser_key_ranges(text)?;
+    let root = document.as_table();
     let mut entries = Vec::new();
-    let mut key_ranges = key_ranges.into_iter();
 
     for (key, item) in document.iter() {
-        if item.as_value().is_none() {
-            return Err(ManifestParseError {
-                range: item.span().and_then(text_range),
-                message: format!("nested TOML table `{key}` is not supported in vide.toml"),
-            });
+        // `toml_edit` keeps exact key spans for parsed documents, one per
+        // root entry — no positional pairing with a separate parser pass.
+        let key_range = root.key(key).and_then(|key| key.span()).and_then(text_range);
+        match item {
+            Item::Value(value) => {
+                let Some(value_range) = value.span().and_then(text_range) else {
+                    tracing::error!(key = %key, "toml_edit returned an entry without a value span");
+                    return Err(ManifestParseError {
+                        range: None,
+                        message: format!("TOML entry `{key}` has no value span"),
+                    });
+                };
+                let Some(key_range) = key_range else {
+                    tracing::error!(key = %key, "toml_edit returned an entry without a key span");
+                    return Err(ManifestParseError {
+                        range: Some(value_range),
+                        message: format!("TOML entry `{key}` has no key span"),
+                    });
+                };
+                entries.push(ManifestEntry {
+                    key: key.to_owned(),
+                    key_range,
+                    value_range,
+                    full_range: TextRange::new(key_range.start(), value_range.end()),
+                    values: item_values(text, key, value),
+                });
+            }
+            // Top-level tables (`[fusesoc]`) and arrays of tables are valid
+            // vide.toml configuration.  Index the header key; the body is
+            // owned by the project loader and carries no manifest values.
+            Item::Table(table) => {
+                let Some(value_range) = table.span().and_then(text_range) else {
+                    tracing::error!(key = %key, "toml_edit returned a table without a span");
+                    return Err(ManifestParseError {
+                        range: None,
+                        message: format!("TOML table `{key}` has no source span"),
+                    });
+                };
+                let Some(key_range) = key_range else {
+                    tracing::error!(key = %key, "toml_edit returned a table without a key span");
+                    return Err(ManifestParseError {
+                        range: Some(value_range),
+                        message: format!("TOML table `{key}` has no key span"),
+                    });
+                };
+                entries.push(ManifestEntry {
+                    key: key.to_owned(),
+                    key_range,
+                    value_range,
+                    full_range: value_range,
+                    values: Vec::new(),
+                });
+            }
+            Item::ArrayOfTables(tables) => {
+                let Some(value_range) = tables.span().and_then(text_range) else {
+                    tracing::error!(key = %key, "toml_edit returned array of tables without a span");
+                    return Err(ManifestParseError {
+                        range: None,
+                        message: format!("TOML array of tables `{key}` has no source span"),
+                    });
+                };
+                let Some(key_range) = key_range else {
+                    tracing::error!(key = %key, "toml_edit returned array of tables without a key span");
+                    return Err(ManifestParseError {
+                        range: Some(value_range),
+                        message: format!("TOML array of tables `{key}` has no key span"),
+                    });
+                };
+                entries.push(ManifestEntry {
+                    key: key.to_owned(),
+                    key_range,
+                    value_range,
+                    full_range: value_range,
+                    values: Vec::new(),
+                });
+            }
+            Item::None => {}
         }
-        let Some(value_range) = item.span().and_then(text_range) else {
-            tracing::error!(key = %key, "toml_edit returned an entry without a source span");
-            return Err(ManifestParseError {
-                range: None,
-                message: format!("TOML entry `{key}` has no source span"),
-            });
-        };
-        let Some(key_range) = key_ranges.next() else {
-            return Err(ManifestParseError {
-                range: Some(value_range),
-                message: format!("TOML parser returned no key span for `{key}`"),
-            });
-        };
-        let full_range = TextRange::new(key_range.start(), value_range.end());
-        let values = item_values(text, key, item);
-        entries.push(ManifestEntry {
-            key: key.to_owned(),
-            key_range,
-            value_range,
-            full_range,
-            values,
-        });
-    }
-
-    if key_ranges.next().is_some() {
-        return Err(ManifestParseError {
-            range: None,
-            message: "TOML parser returned more key spans than toml_edit".to_owned(),
-        });
     }
     entries.sort_by_key(|entry| entry.full_range.start());
     Ok(entries)
@@ -162,7 +204,6 @@ fn parse_document(text: &str) -> Result<Vec<ManifestEntry>, ManifestParseError> 
 
 #[derive(Debug, Default)]
 struct ManifestParserSyntax {
-    key_ranges: Vec<TextRange>,
     incomplete_key_range: Option<TextRange>,
 }
 
@@ -191,6 +232,8 @@ fn parser_syntax(text: &str) -> Result<(ManifestParserSyntax, bool), ManifestPar
                     message: "TOML parser emitted an unmatched container close".to_owned(),
                 })?
             }
+            // Track only top-level keys: table headers (`[fusesoc]`) emit
+            // their key at depth 1 and are not incomplete-key candidates.
             EventKind::SimpleKey if container_depth == 0 => {
                 let span = text_range_from_span(event.span())?;
                 pending_key = Some(match pending_key {
@@ -199,29 +242,19 @@ fn parser_syntax(text: &str) -> Result<(ManifestParserSyntax, bool), ManifestPar
                 });
             }
             EventKind::KeyValSep if container_depth == 0 => {
-                let range = pending_key.take().ok_or(ManifestParseError {
-                    range: Some(text_range_from_span(event.span())?),
-                    message: "TOML parser emitted a key/value separator without a key".to_owned(),
-                })?;
-                syntax.key_ranges.push(range);
+                pending_key.take();
             }
-            EventKind::Newline => syntax.incomplete_key_range = pending_key.take(),
+            EventKind::Newline if container_depth == 0 && pending_key.is_some() => {
+                // A key still pending at end of line has no `=` — it is an
+                // incomplete key.  The key/value separator arrives before the
+                // newline, so completed keys are already cleared here.
+                syntax.incomplete_key_range = pending_key.take();
+            }
             _ => {}
         }
     }
     syntax.incomplete_key_range = pending_key.or(syntax.incomplete_key_range);
     Ok((syntax, !errors.is_empty()))
-}
-
-fn parser_key_ranges(text: &str) -> Result<Vec<TextRange>, ManifestParseError> {
-    let (syntax, has_errors) = parser_syntax(text)?;
-    if has_errors {
-        return Err(ManifestParseError {
-            range: None,
-            message: "TOML parser rejected the document while producing source spans".to_owned(),
-        });
-    }
-    Ok(syntax.key_ranges)
 }
 
 fn text_range_from_span(span: Span) -> Result<TextRange, ManifestParseError> {
@@ -251,17 +284,12 @@ fn entries_for(db: &dyn SourceDb, file_id: FileId) -> Option<Vec<ManifestEntry>>
     Some(index_for(db, file_id)?.entries.clone())
 }
 
-fn item_values(text: &str, key: &str, item: &Item) -> Vec<ManifestValue> {
-    if let Some(array) = item.as_array() {
+fn item_values(text: &str, key: &str, value: &Value) -> Vec<ManifestValue> {
+    if let Some(array) = value.as_array() {
         return array.iter().filter_map(|value| manifest_value_value(text, key, value)).collect();
     }
 
-    manifest_value(text, key, item).into_iter().collect()
-}
-
-fn manifest_value(text: &str, key: &str, item: &Item) -> Option<ManifestValue> {
-    let value = item.as_value()?;
-    manifest_value_value(text, key, value)
+    manifest_value_value(text, key, value).into_iter().collect()
 }
 
 fn manifest_value_value(text: &str, key: &str, value: &Value) -> Option<ManifestValue> {
@@ -948,5 +976,49 @@ mod tests {
             &text[usize::from(comments[1].range.start())..usize::from(comments[1].range.end())],
             "# trailing"
         );
+    }
+
+    #[test]
+    fn parse_keeps_top_level_table_entry() {
+        let text = "[fusesoc]\ntarget = \"agilex5\"\n";
+        let entries = parse_document(text).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key, "fusesoc");
+        assert_eq!(entries[0].key_range, TextRange::new(TextSize::from(1), TextSize::from(8)));
+        assert_eq!(entries[0].full_range, TextRange::new(TextSize::from(0), TextSize::from(28)));
+        assert!(entries[0].values.is_empty());
+    }
+
+    #[test]
+    fn parse_mixed_flat_and_table_entries() {
+        let text = "top_modules = [\"top\"]\n[fusesoc]\ntarget = \"agilex5\"\n";
+        let entries = parse_document(text).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].key, "top_modules");
+        assert_eq!(entries[0].values.len(), 1);
+        assert_eq!(entries[0].values[0].text, "top");
+        assert_eq!(entries[1].key, "fusesoc");
+        assert!(entries[1].values.is_empty());
+    }
+
+    #[test]
+    fn table_body_keys_do_not_become_root_entries() {
+        let text = "[fusesoc]\ntarget = \"agilex5\"\nsources = [\"rtl/**\"]\n";
+        let entries = parse_document(text).unwrap();
+        // Everything after `[fusesoc]` belongs to that table; `target` and
+        // `sources` are not root entries.
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key, "fusesoc");
+        assert!(entries[0].values.is_empty());
+    }
+
+    #[test]
+    fn parse_keeps_array_of_tables_entry() {
+        let text = "[[items]]\nname = \"x\"\n";
+        let entries = parse_document(text).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key, "items");
+        assert_eq!(entries[0].key_range, TextRange::new(TextSize::from(2), TextSize::from(7)));
+        assert!(entries[0].values.is_empty());
     }
 }

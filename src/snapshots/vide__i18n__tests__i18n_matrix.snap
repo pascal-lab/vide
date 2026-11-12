@@ -1,5 +1,6 @@
 ---
 source: src/i18n.rs
+assertion_line: 249
 expression: report
 ---
 locale mapping:
@@ -13,7 +14,7 @@ message lookup:
 formatting:
   Qihe 分析完成，共 3 条诊断。
 locale table keys:
-  en: 81
-  zh-CN: 81
+  en: 83
+  zh-CN: 83
   only en: []
   only zh-CN: []
