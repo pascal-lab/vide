@@ -1585,6 +1585,32 @@ endmodule
     }
 
     #[test]
+    fn empty_port_concatenation_lowers_without_panicking() {
+        // An empty concatenation slot in a non-ANSI port list used to index an
+        // empty arena while lowering, panicking every later LSP request.
+        let db = db_with_root_text(
+            r#"
+module empty_slot({});
+endmodule
+
+module mixed_slots(a, {}, b);
+  input a;
+  output b;
+endmodule
+"#,
+        );
+
+        let empty_slot = db.unit_index().module_ids(&ident("empty_slot")).unique().unwrap();
+        let _ = db.body_with_source_map(empty_slot);
+        let _ = db.scope(empty_slot);
+
+        let mixed_slots = db.unit_index().module_ids(&ident("mixed_slots")).unique().unwrap();
+        let _ = db.body_with_source_map(mixed_slots);
+        let _ = db.scope(mixed_slots);
+        assert!(!resolve_name(&db, mixed_slots, &ident("a"), NameContext::Value).is_unresolved());
+        assert!(!resolve_name(&db, mixed_slots, &ident("b"), NameContext::Value).is_unresolved());
+    }
+    #[test]
     fn module_header_imports_reach_the_module_scope() {
         let db = db_with_root_text(
             r#"
