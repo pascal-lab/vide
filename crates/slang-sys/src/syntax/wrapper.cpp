@@ -742,20 +742,25 @@ namespace slang_sys::syntax::tree {
         const slang::SourceManager &source_manager,
         slang::SourceLocation location,
         const std::unordered_map<TraceCallKey, TraceCallInfo, TraceCallKeyHash> &calls,
+        const std::unordered_map<uint32_t, uint32_t> &call_by_buffer,
+        const std::unordered_map<uint32_t, TraceCallInfo> &call_info,
         RawTraceSourceRange &call_range
     ) {
         auto current = location;
         while (source_manager.isMacroLoc(current)) {
-            auto expansion = source_manager.getExpansionRange(current);
-            auto range = trace_range(expansion);
-            if (range.has_range) {
-                auto it = calls.find(call_key(range));
-                if (it != calls.end()) {
-                    call_range = it->second.source_range;
-                    return &it->second;
+            // Every expansion owns a contiguous run of macro buffers, so the buffer of a
+            // macro location identifies the expansion instance even when several
+            // expansions share the same source call site (a macro used inside a formal
+            // parameter default value is expanded once per call but always reports the
+            // same source range).
+            if (auto buffer = call_by_buffer.find(current.buffer().getId());
+                buffer != call_by_buffer.end()) {
+                if (auto info = call_info.find(buffer->second); info != call_info.end()) {
+                    call_range = info->second.source_range;
+                    return &info->second;
                 }
             }
-            current = expansion.start();
+            current = source_manager.getExpansionRange(current).start();
         }
         return find_call_at_location(current, calls, call_range);
     }
@@ -765,20 +770,26 @@ namespace slang_sys::syntax::tree {
         slang::SourceLocation location,
         uint32_t child_call_id,
         const std::unordered_map<TraceCallKey, TraceCallInfo, TraceCallKeyHash> &calls,
+        const std::unordered_map<uint32_t, uint32_t> &call_by_buffer,
+        const std::unordered_map<uint32_t, TraceCallInfo> &call_info,
         RawTraceSourceRange &call_range
     ) {
         auto current = location;
+        bool saw_child = false;
         while (source_manager.isMacroLoc(current)) {
-            auto expansion = source_manager.getExpansionRange(current);
-            auto range = trace_range(expansion);
-            if (range.has_range) {
-                auto it = calls.find(call_key(range));
-                if (it != calls.end() && it->second.call_id != child_call_id) {
-                    call_range = it->second.source_range;
-                    return &it->second;
+            if (auto buffer = call_by_buffer.find(current.buffer().getId());
+                buffer != call_by_buffer.end()) {
+                if (!saw_child && buffer->second == child_call_id) {
+                    saw_child = true;
+                }
+                else if (saw_child && buffer->second != child_call_id) {
+                    if (auto info = call_info.find(buffer->second); info != call_info.end()) {
+                        call_range = info->second.source_range;
+                        return &info->second;
+                    }
                 }
             }
-            current = expansion.start();
+            current = source_manager.getExpansionRange(current).start();
         }
 
         auto parent = find_call_at_location(current, calls, call_range);
@@ -805,6 +816,8 @@ namespace slang_sys::syntax::tree {
         const slang::SourceManager& source_manager,
         uint32_t emitted_index,
         const std::unordered_map<TraceCallKey, TraceCallInfo, TraceCallKeyHash>& calls,
+        const std::unordered_map<uint32_t, uint32_t>& call_by_buffer,
+        const std::unordered_map<uint32_t, TraceCallInfo>& call_info,
         const std::unordered_map<uint32_t, slang::parsing::MacroUsageOrigin>& call_origins,
         const std::unordered_map<uint32_t, uint32_t>& call_definitions,
         const std::unordered_map<uint32_t, std::string>& call_names
@@ -820,7 +833,7 @@ namespace slang_sys::syntax::tree {
 
         if (location.valid() && source_manager.isMacroLoc(location)) {
             RawTraceSourceRange call_range = empty_trace_range();
-            auto call = find_call(source_manager, location, calls, call_range);
+            auto call = find_call(source_manager, location, calls, call_by_buffer, call_info, call_range);
             if (!call)
                 throw std::logic_error("Slang macro token has no recorded macro call");
             auto call_origin = call_origins.find(call->call_id);
@@ -847,7 +860,14 @@ namespace slang_sys::syntax::tree {
             auto original_range = original_token_range(source_manager, original, token.rawText().size());
             auto parent_call_range = empty_trace_range();
             auto parent_call = find_parent_call(
-                source_manager, location, call->call_id, calls, parent_call_range);
+                source_manager,
+                location,
+                call->call_id,
+                calls,
+                call_by_buffer,
+                call_info,
+                parent_call_range
+            );
             if (parent_call) {
                 set_id(
                     origin.parent_macro_expansion_id,
@@ -857,9 +877,14 @@ namespace slang_sys::syntax::tree {
             }
             if (source_manager.isMacroArgLoc(location)) {
                 auto token_origin = token.macroOrigin();
+                // A token substituted from a formal parameter's default value is located
+                // like a macro argument but has no actual argument at the call site to
+                // point at. It is a body token sitting at the formal parameter's place,
+                // so it must not claim an argument position.
+                const bool default_argument = !token_origin.hasArgumentIndex;
                 switch (call_origin->second) {
                     case slang::parsing::MacroUsageOrigin::Source:
-                        origin.kind = 3;
+                        origin.kind = default_argument ? 2 : 3;
                         break;
                     case slang::parsing::MacroUsageOrigin::Predefine:
                         origin.kind = 7;
@@ -880,7 +905,8 @@ namespace slang_sys::syntax::tree {
                 origin.has_argument_index = token_origin.hasArgumentIndex;
                 origin.argument_token_index = token_origin.argumentTokenIndex;
                 origin.has_argument_token_index = token_origin.hasArgumentTokenIndex;
-                if (macro_operation == slang::parsing::Token::MacroOperation::None &&
+                if (!default_argument &&
+                    macro_operation == slang::parsing::Token::MacroOperation::None &&
                     call_origin->second == slang::parsing::MacroUsageOrigin::Source &&
                     (!origin.has_body_token_index || !origin.has_argument_index ||
                      !origin.has_argument_token_index))
@@ -976,6 +1002,9 @@ namespace slang_sys::syntax::tree {
         std::unordered_map<uint32_t, slang::parsing::MacroUsageOrigin> call_origins;
         std::unordered_map<uint32_t, uint32_t> call_definitions;
         std::unordered_map<uint32_t, std::string> call_names;
+        std::unordered_map<uint32_t, TraceCallInfo> call_info;
+        std::unordered_map<uint32_t, uint32_t> call_by_buffer;
+        std::vector<std::pair<std::pair<uint32_t, uint32_t>, uint32_t>> buffer_ranges;
         uint32_t next_definition = 1;
         for (auto* node : nodes) {
             if (node->kind != slang::syntax::SyntaxKind::DefineDirective)
@@ -983,7 +1012,12 @@ namespace slang_sys::syntax::tree {
             auto& define = node->as<slang::syntax::DefineDirectiveSyntax>();
             definitions.emplace(&define, next_definition++);
         }
-        for (const auto& usage : tree.tree->getMacroUsages()) {
+        auto macro_usages = tree.tree->getMacroUsages();
+        std::unordered_map<const slang::syntax::SyntaxNode*, std::pair<uint32_t, uint32_t>>
+            expansion_buffers;
+        for (const auto& usage : macro_usages) {
+            expansion_buffers.emplace(
+                usage.syntax, std::pair { usage.firstExpansionBuffer, usage.lastExpansionBuffer });
             add_source_range_buffer(usage.syntax->sourceRange());
             add_source_range_buffer(
                 tree.session->source_manager.getFullyOriginalRange(usage.syntax->sourceRange()));
@@ -997,7 +1031,7 @@ namespace slang_sys::syntax::tree {
             if (usage.definition && !definitions.contains(usage.definition))
                 definitions.emplace(usage.definition, next_definition++);
         }
-        for (const auto& usage : tree.tree->getMacroUsages()) {
+        for (const auto& usage : macro_usages) {
             if (seen.insert(usage.syntax).second)
                 nodes.push_back(usage.syntax);
         }
@@ -1067,13 +1101,21 @@ namespace slang_sys::syntax::tree {
                 auto insertion =
                     calls.emplace(call_key(range), TraceCallInfo { call_id, call_id, event.range });
                 if (!insertion.second) {
-                    throw std::logic_error(
-                        "Slang macro usage ranges are not unique: " + name + " at " +
-                        std::to_string(range.buffer_id) + ":" +
-                        std::to_string(range.range_start) + "-" +
-                        std::to_string(range.range_end)
-                    );
+                    // A macro used at a definition-site position (for example inside a
+                    // formal parameter default value) is expanded once per enclosing call
+                    // but always reports the same source range. The expansion buffer map
+                    // below tells those instances apart; the range map keeps the first
+                    // record as a fallback for plain source locations.
+                    auto existing_name = call_names.find(insertion.first->second.call_id);
+                    if (existing_name == call_names.end() || existing_name->second != name)
+                        throw std::logic_error(
+                            "Slang macro usage ranges map to different macros: " + name);
                 }
+                call_info.emplace(call_id, TraceCallInfo { call_id, call_id, event.range });
+                if (auto buffers = expansion_buffers.find(node);
+                    buffers != expansion_buffers.end() &&
+                    buffers->second.first < buffers->second.second)
+                    buffer_ranges.push_back({ buffers->second, call_id });
                 if (auto usage = macro_origins.find(node); usage != macro_origins.end() &&
                     usage->second == slang::parsing::MacroUsageOrigin::Source) {
                     auto definition = macro_definitions.find(node);
@@ -1106,6 +1148,24 @@ namespace slang_sys::syntax::tree {
             result.events.emplace_back(std::move(event));
         }
 
+        // Slang allocates one contiguous run of macro buffers per expansion. Map every
+        // buffer of a run to the call that owns it; nested expansions are strictly
+        // smaller ranges, so assigning children first keeps the innermost call for a
+        // buffer that a parent expansion also covers.
+        std::sort(
+            buffer_ranges.begin(),
+            buffer_ranges.end(),
+            [](const auto& left, const auto& right) {
+                auto left_size = left.first.second - left.first.first;
+                auto right_size = right.first.second - right.first.first;
+                return left_size < right_size;
+            }
+        );
+        for (const auto& [buffers, call] : buffer_ranges) {
+            for (uint32_t buffer_id = buffers.first; buffer_id < buffers.second; buffer_id++)
+                call_by_buffer.emplace(buffer_id, call);
+        }
+
         for (auto include : tree.tree->getIncludeDirectives()) {
             auto event = event_ids.find(include.syntax);
             if (event == event_ids.end())
@@ -1131,7 +1191,7 @@ namespace slang_sys::syntax::tree {
             result.emitted_tokens.emplace_back(trace_emitted_token(
                 token, tree.session->source_manager,
                 static_cast<uint32_t>(result.emitted_tokens.size()),
-                calls, call_origins, call_definitions, call_names
+                calls, call_by_buffer, call_info, call_origins, call_definitions, call_names
             ));
         }
         std::vector<uint32_t> sorted_source_buffer_ids(
