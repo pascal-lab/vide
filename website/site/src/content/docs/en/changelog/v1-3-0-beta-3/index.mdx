@@ -1,0 +1,45 @@
+---
+title: 1.3.0-beta.3
+description: Vide 1.3.0-beta.3 release notes.
+---
+
+Vide 1.3.0-beta.3 is a prerelease focused on stability for real-world
+SystemVerilog projects: it fixes a language server crash on common macro
+patterns and completes package-scoped name resolution.
+
+## Highlights
+
+- Fixed a crash that aborted the language server on projects that expand macros
+  with default arguments, such as `prim_assert`-style assertion macros used
+  throughout ibex and OpenTitan.
+- Module header imports (`module m import pkg::*; (...)`) are now understood, so
+  wildcard-imported types, functions and enum literals resolve.
+- Enum literals and struct/union members are now definitions: `STOP`,
+  `pkg::STOP`, `value` and `cnt.ovf` navigate to their declarations.
+
+## Fixes
+
+- Macro expansion tracing now identifies each expansion instance by the macro
+  buffers it allocates, so nested macros and default arguments no longer
+  violate the trace invariants.
+- Tokens substituted from a formal parameter's default value are treated as
+  macro body tokens instead of arguments that do not exist at the call site.
+- Imports declared in a module, interface or program header are lowered into
+  the module scope.
+- Enum literals are injected into the declaring scope's value namespace and into
+  package exports, which also makes wildcard imports expose them.
+- Aggregate member names resolve through typedefs, so a same-named port no
+  longer shadows a struct field.
+
+## Known limitations
+
+- Member navigation follows one level of aggregate nesting; chained access
+  through hierarchical instances is still limited.
+- Rename and other refactorings do not yet treat enum literals as a dedicated
+  category.
+- Several SystemVerilog constructs are lowered but not fully analyzed, so some
+  hover and completion results remain incomplete.
+- This prerelease is distributed through GitHub only; Marketplace and the
+  production documentation site follow the stable release line.
+
+**Full Changelog**: [v1.3.0-beta.2...v1.3.0-beta.3](https://github.com/pascal-lab/vide/compare/v1.3.0-beta.2...v1.3.0-beta.3)
