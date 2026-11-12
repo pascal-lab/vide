@@ -133,7 +133,7 @@ jobs:
   finalize:
     name: Publish GitHub Release
     if: ${{ !inputs.dry-run && always() && needs.publish-github.result == 'success' && (needs.publish-marketplaces.result == 'success' || needs.publish-marketplaces.result == 'skipped') && (needs.deploy-docs.result == 'success' || needs.deploy-docs.result == 'skipped') }}
-    needs: [publish-github, publish-marketplaces, deploy-docs]
+    needs: [validate, publish-github, publish-marketplaces, deploy-docs]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -141,5 +141,13 @@ jobs:
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
-        run: gh release edit "${TAG}" --draft=false --latest
+          CHANNEL: ${{ needs.validate.outputs.channel }}
+        run: |
+          set -euo pipefail
+          if [ "${CHANNEL}" = stable ]; then
+            gh release edit "${TAG}" --draft=false --latest
+          else
+            gh release edit "${TAG}" --draft=false
+          fi
