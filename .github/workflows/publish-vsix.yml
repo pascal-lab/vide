@@ -1,14 +1,26 @@
-name: Publish VSIX
+name: Publish VSIX to Open VSX
 
 on:
+  workflow_dispatch:
+    inputs:
+      source-ref:
+        description: Git ref the VSIX artifacts were built from
+        required: true
+        type: string
+      run-id:
+        description: Actions run id that produced the vsix-* artifacts
+        required: true
+        type: string
   workflow_call:
     inputs:
       source-ref:
         required: true
         type: string
+      run-id:
+        description: Optional run id to republish artifacts from; defaults to the caller run
+        required: false
+        type: string
     secrets:
-      VSCE_PAT:
-        required: true
       OPEN_VSX_TOKEN:
         required: true
 
@@ -18,12 +30,9 @@ permissions:
 
 jobs:
   publish:
-    name: Publish VSIX packages
+    name: Publish VSIX packages to Open VSX
     runs-on: ubuntu-latest
     environment: vscode-marketplaces
-    defaults:
-      run:
-        working-directory: editors/vscode
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,29 +41,27 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: editors/vscode/package-lock.json
-      - name: Install extension dependencies
-        run: npm ci
       - name: Download VSIX packages
         uses: actions/download-artifact@v4
         with:
           pattern: vsix-*
           path: artifacts
           merge-multiple: true
-      - name: Publish to VS Code Marketplace
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: |
-          set -euo pipefail
-          for vsix in ../../artifacts/*.vsix; do
-            node node_modules/@vscode/vsce/vsce publish --packagePath "${vsix}"
-          done
+          run-id: ${{ inputs.run-id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      # The VS Code Marketplace publication is done manually by a maintainer;
+      # only Open VSX is automated here.
       - name: Publish to Open VSX
         env:
           OPEN_VSX_TOKEN: ${{ secrets.OPEN_VSX_TOKEN }}
         run: |
           set -euo pipefail
-          for vsix in ../../artifacts/*.vsix; do
+          shopt -s nullglob
+          vsix_files=(artifacts/*.vsix)
+          if [ "${#vsix_files[@]}" -eq 0 ]; then
+            echo "no VSIX packages found for run ${{ inputs.run-id || github.run_id }}" >&2
+            exit 1
+          fi
+          for vsix in "${vsix_files[@]}"; do
             npx --yes ovsx@1.1.1 publish "${vsix}" -p "${OPEN_VSX_TOKEN}"
           done
