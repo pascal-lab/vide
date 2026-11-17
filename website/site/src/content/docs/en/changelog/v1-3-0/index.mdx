@@ -1,0 +1,49 @@
+---
+title: 1.3.0
+description: Vide 1.3.0 release notes.
+---
+
+Vide 1.3.0 is the first stable release of the 1.3 line. Compared with 1.2.x, it upgrades the SystemVerilog frontend to Slang v11, brings full editor support to `vide.toml`, and significantly expands project-wide navigation, language coverage, and responsiveness on large RTL codebases.
+
+## Highlights
+
+### Slang v11 Frontend
+
+- Syntax parsing, semantic diagnostics, and macro source mapping now run on Slang v11, keeping editor diagnostics aligned with the compiler used in real projects.
+- Diagnostic ranges inside macro-expanded code are more precise, reducing misaligned or spurious squiggles. Semantic diagnostics run asynchronously in the background so typing stays responsive in large files.
+
+### Project-Wide Navigation & Outline
+
+- **Go to Type Definition**: Jump directly from signals, variables, or ports to their `typedef`, `struct`, `enum`, or `interface` declarations.
+- **Call Hierarchy**: Inspect both incoming callers and outgoing callees for functions and tasks.
+- **Module & Hierarchical Path Navigation**: Supports project-wide module instantiation hierarchy, cross-hierarchy dotted path navigation (such as `dut.u_core.sig`), and `interface modport` member navigation.
+- **Scoped Names & Aggregate Members**: Enum literals and `struct`/`union` members are now resolved as first-class definitions—names like `STOP`, `pkg::STOP`, and `cnt.ovf` jump directly to their declarations. Wildcard imports in module headers (`module m import pkg::*; (...)`) are also resolved.
+- **Improved Workspace Symbol Search**: Results are ranked by relevance, requests are cancellable, and full container paths are shown for easier navigation in large projects.
+
+### `vide.toml` Editor Support
+
+- Opening `vide.toml` now provides hover documentation for configuration keys, autocompletion, TOML and schema diagnostics, document symbols, and code folding.
+- Workspace-aware completion lists available manifest keys and completes module names from your project when editing `top_modules`.
+- Renaming a top-level module updates both `vide.toml` and its RTL references together.
+
+### Signature Help, Hover & Macro Editing
+
+- **Signature Help**: Parameter signature hints are available for functions, tasks, and system tasks (such as `$display` and `$clog2`), with argument name inlay hints for system calls.
+- **Richer Hover Info**: Hovering over system tasks shows parameter and usage metadata, and hovering over assertions or macro calls displays clearer expansion previews.
+- **Macro Rename & Safe Fallbacks**: Rename now covers preprocessor macros and macro parameters. When a macro or `include` context is incomplete, editor queries conservatively skip uncertain results instead of producing misleading completions or edits.
+
+### Broader SystemVerilog Coverage
+
+- Expanded syntax recognition and symbol indexing for common design and verification constructs, including `class`, `constraint`, SVA assertions (`property` / `sequence`), `clocking` blocks, `checker`, `covergroup`, DPI declarations, `bind` directives, user-defined `nettype`, `tagged union`, `program`, `let` declarations, `randcase`, and `disable fork`.
+- Added code folding for `checker`, `covergroup`, and code regions, alongside richer document outlines.
+
+## Performance & Reliability
+
+- **Per-File Incremental Indexing**: Editing a file now rebuilds only that file's semantic index instead of re-indexing the entire project, paired with multi-level caching to avoid redundant work.
+- **Crash Fixes for Complex Macros**: Fixed language server aborts on nested macro expansions and macros with default arguments (common in `prim_assert`-style assertion macros).
+- **Additional Fixes**:
+  - Fixed a panic on empty concatenations in non-ANSI port lists.
+  - Fixed request handling races during workspace cold start and initialization.
+  - Fixed macOS file watcher readiness blocking and Windows absolute path handling.
+
+**Full Changelog**: [v1.2.5...v1.3.0](https://github.com/pascal-lab/vide/compare/v1.2.5...v1.3.0)
