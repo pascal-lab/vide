@@ -1,6 +1,12 @@
 name: Publish production docs
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag whose documentation is deployed to production
+        required: true
+        type: string
   workflow_call:
     inputs:
       tag:
@@ -56,7 +62,23 @@ jobs:
           endpoint: ${{ secrets.endpoint }}
           access-key-id: ${{ secrets.accessKeyId }}
           access-key-secret: ${{ secrets.accessKeySecret }}
+      # ossutil 1.7 matches --include/--exclude against file names only: patterns that
+      # contain a directory separator are rejected outright. A whole-root sync with
+      # --delete would therefore remove the preview/ and staging/ prefixes owned by
+      # the preview deployment, so sync every production top-level entry instead.
+      # --delete then stays scoped to production paths; stale top-level entries are
+      # the only thing a removed build output would leave behind.
       - name: Deploy production documentation
         env:
           BUCKET: ${{ secrets.bucketName }}
-        run: ossutil sync website/site/dist/ "oss://${BUCKET}/" --delete --exclude 'preview/*' --exclude 'staging/*' -f --disable-ignore-error
+        run: |
+          set -euo pipefail
+          cd website/site/dist
+          shopt -s nullglob dotglob
+          for entry in *; do
+            if [ -d "${entry}" ]; then
+              ossutil sync "${entry}/" "oss://${BUCKET}/${entry}/" --delete -f --disable-ignore-error
+            else
+              ossutil cp -f "${entry}" "oss://${BUCKET}/${entry}" --disable-ignore-error
+            fi
+          done

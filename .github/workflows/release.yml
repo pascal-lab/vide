@@ -113,7 +113,7 @@ jobs:
             artifacts/*
 
   publish-marketplaces:
-    name: Publish extension marketplaces
+    name: Publish extension to Open VSX
     if: ${{ !inputs.dry-run && needs.validate.outputs.channel == 'stable' }}
     needs: [validate, build, publish-github]
     uses: ./.github/workflows/publish-vsix.yml
