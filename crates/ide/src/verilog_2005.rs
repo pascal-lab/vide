@@ -2513,6 +2513,104 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_hover_parameter_value_uses_constant_evaluation() {
+    let text = r#"
+package cfg_pkg;
+  parameter BASE = 4;
+endpackage
+
+module m;
+  typedef struct packed {
+    logic [7:0] addr;
+    logic [3:0] len;
+  } req_t;
+
+  localparam /*marker:algebra*/DOUBLE = 2 * 8 + 1;
+  localparam /*marker:clog2*/ADDR_W = $clog2(100);
+  localparam /*marker:ceil*/ALIGN = $ceil(3.2);
+  localparam /*marker:bits*/REQ_W = $bits(req_t);
+  localparam /*marker:scoped*/PKG_W = cfg_pkg::BASE * 2;
+  localparam /*marker:ternary*/LIMIT = DOUBLE > 16 ? 32 : 8;
+  localparam /*marker:cycle_a*/CYCLE_A = CYCLE_B;
+  localparam /*marker:cycle_b*/CYCLE_B = CYCLE_A;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let mut report = String::new();
+    for name in ["algebra", "clog2", "ceil", "bits", "scoped", "ternary", "cycle_a"] {
+        let hover = analysis
+            .hover(position(file_id, &markers, name))
+            .unwrap()
+            .unwrap_or_else(|| panic!("hover expected for {name}"));
+        writeln!(&mut report, "--- {name} ---").unwrap();
+        writeln!(&mut report, "{}", normalize_hover_snapshot(hover.info.as_str())).unwrap();
+    }
+    assert_hover_snapshot!("verilog_2005_hover_parameter_value_uses_constant_evaluation", &report,);
+}
+
+#[test]
+fn verilog_2005_hover_instance_lists_effective_parameters() {
+    let text = r#"
+module child #(
+  parameter WIDTH = 8,
+  parameter DEPTH = WIDTH * 2
+) (
+  input wire clk
+);
+  localparam BODY = DEPTH + 1;
+endmodule
+
+module top;
+  localparam SCALE = 4;
+  child #(.WIDTH(2 * SCALE)) /*marker:instance*/u_child(.clk());
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let hover = analysis
+        .hover(position(file_id, &markers, "instance"))
+        .unwrap()
+        .expect("instance hover expected");
+    assert_hover_snapshot!(
+        "verilog_2005_hover_instance_lists_effective_parameters",
+        hover.info.as_str()
+    );
+}
+
+#[test]
+fn verilog_2005_hover_parameter_override_shows_effective_value() {
+    let text = r#"
+module child #(
+  parameter WIDTH = 8,
+  parameter LEVELS = 2
+);
+endmodule
+
+module top;
+  localparam BASE = 4;
+  child #(./*marker:named*/WIDTH(BASE * 2)) u_named();
+  child #(/*marker:ordered*/5, /*marker:ordered_levels*/3) u_ordered();
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let mut report = String::new();
+    for name in ["named", "ordered", "ordered_levels"] {
+        let hover = analysis
+            .hover(position(file_id, &markers, name))
+            .unwrap()
+            .unwrap_or_else(|| panic!("hover expected for {name}"));
+        writeln!(&mut report, "--- {name} ---").unwrap();
+        writeln!(&mut report, "{}", normalize_hover_snapshot(hover.info.as_str())).unwrap();
+    }
+    assert_hover_snapshot!("verilog_2005_hover_parameter_override_shows_effective_value", &report,);
+}
+
+#[test]
 fn systemverilog_interface_modport_hover_and_navigation() {
     let text = r#"
 interface /*marker:iface_def*/bus_if;

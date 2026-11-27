@@ -1,5 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 2473
 expression: normalize_hover_snapshot(instance_hover.info.as_str())
 ---
 ```systemverilog
@@ -10,6 +11,10 @@ module child #(
 ) (
     input wire logic clk
 )
+
+effective parameters:
+parameter WIDTH = 8
+localparam DEPTH = 9
 ```
 
 

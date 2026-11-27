@@ -124,7 +124,7 @@ pub(crate) fn token_precedence(kind: TokenKind) -> usize {
 fn handle_literal(
     sema: &Semantics<RootDb>,
     file_id: HirFileId,
-    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+    tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<Markup> {
     if !tok.kind().is_literal() {
         return None;
@@ -137,6 +137,21 @@ fn handle_literal(
         return None;
     };
 
+    // A literal inside a `#(...)` parameter assignment describes an override;
+    // show the targeted parameter and its effective value instead of plain
+    // literal information.
+    if let Some(range) = tp.text_range()
+        && let Some(markup) = render::render_param_override_section(
+            sema,
+            file_id,
+            tp.parent,
+            range,
+            None,
+            Some(OwnerRef::new(cont_id, expr_id)),
+        )
+    {
+        return Some(markup);
+    }
     render::render_literal(literal)
 }
 
@@ -191,6 +206,8 @@ fn handle_definition(
     tp: SyntaxTokenWithParent,
 ) -> Option<Markup> {
     let token_text = token_text(sema.db, file_id, &tp);
+    let token_range = tp.text_range();
+    let token_parent = tp.parent;
     let def = DefinitionClass::resolve(sema.db, file_id, tp);
     let anchor_file_id = file_id.expect_file();
     let mut res = Markup::new();
@@ -198,6 +215,20 @@ fn handle_definition(
     match def {
         hir_def::symbol::Resolution::Unique(DefinitionClass::Definition(def)) => {
             res.merge(render::render_definition(sema, def, anchor_file_id));
+            // Hovering the `.name` of a parameter override anchors to the
+            // targeted parameter; append the effective value passed here.
+            if let Some(range) = token_range
+                && let Some(override_markup) = render::render_param_override_section(
+                    sema,
+                    file_id,
+                    token_parent,
+                    range,
+                    Some(def),
+                    None,
+                )
+            {
+                res.merge(override_markup);
+            }
         }
         hir_def::symbol::Resolution::Unique(DefinitionClass::PortConnShorthand { port, local }) => {
             res.title("Port connection shorthand");

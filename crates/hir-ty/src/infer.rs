@@ -37,7 +37,7 @@ pub(crate) fn normalize_data_ty(db: &dyn TyDb, container: OwnerId, data_ty: Data
     normalize_data_ty_with_owner(db, container, data_ty, None)
 }
 
-fn normalize_data_ty_with_owner(
+pub(crate) fn normalize_data_ty_with_owner(
     db: &dyn TyDb,
     container: OwnerId,
     data_ty: DataTy,

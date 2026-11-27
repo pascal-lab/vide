@@ -6,6 +6,7 @@
 //! not depend on semantic adapters or IDE features.
 
 mod compatibility;
+pub mod const_eval;
 pub mod db;
 pub mod display;
 mod infer;
@@ -13,4 +14,5 @@ mod members;
 mod ty;
 mod type_system;
 
+pub use const_eval::{ConstInt, ConstValue, ParamOverrides};
 pub use type_system::{Compatibility, Member, Type, TypeDiagnostic, TypeSystem};
