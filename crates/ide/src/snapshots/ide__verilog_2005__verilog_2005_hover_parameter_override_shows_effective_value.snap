@@ -1,0 +1,58 @@
+---
+source: crates/ide/src/verilog_2005.rs
+assertion_line: 2610
+expression: normalize_hover_snapshot(&report)
+---
+--- named ---
+```systemverilog
+parameter logic WIDTH = 8
+```
+
+
+---
+
+value: `8`
+
+---
+
+in `child` from [feature.v](<feature.v#L3>)
+
+---
+
+Override
+```systemverilog
+WIDTH = 8
+```
+
+
+---
+
+default 8
+--- ordered ---
+
+
+---
+
+Override
+```systemverilog
+WIDTH = 5
+```
+
+
+---
+
+default 8
+--- ordered_levels ---
+
+
+---
+
+Override
+```systemverilog
+LEVELS = 3
+```
+
+
+---
+
+default 2

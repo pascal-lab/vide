@@ -16,6 +16,7 @@ pub(crate) mod manifest;
 pub mod markup;
 pub(crate) mod module_resolution;
 pub mod navigation_target;
+pub(crate) mod param_eval;
 pub mod render;
 pub mod source_change;
 

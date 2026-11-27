@@ -1,0 +1,92 @@
+---
+source: crates/ide/src/verilog_2005.rs
+assertion_line: 2550
+expression: normalize_hover_snapshot(&report)
+---
+--- algebra ---
+```systemverilog
+localparam logic DOUBLE = 2 * 8 + 1
+```
+
+
+---
+
+value: `17`
+
+---
+
+in `m` from [feature.v](<feature.v#L12>)
+--- clog2 ---
+```systemverilog
+localparam logic ADDR_W = $clog2(100)
+```
+
+
+---
+
+value: `7`
+
+---
+
+in `m` from [feature.v](<feature.v#L13>)
+--- ceil ---
+```systemverilog
+localparam logic ALIGN = $ceil(3.2)
+```
+
+
+---
+
+value: `4.0`
+
+---
+
+in `m` from [feature.v](<feature.v#L14>)
+--- bits ---
+```systemverilog
+localparam logic REQ_W = $bits(req_t)
+```
+
+
+---
+
+value: `12`
+
+---
+
+in `m` from [feature.v](<feature.v#L15>)
+--- scoped ---
+```systemverilog
+localparam logic PKG_W = cfg_pkg.BASE * 2
+```
+
+
+---
+
+value: `8`
+
+---
+
+in `m` from [feature.v](<feature.v#L16>)
+--- ternary ---
+```systemverilog
+localparam logic LIMIT = DOUBLE > 16 ? 32 : 8
+```
+
+
+---
+
+value: `32`
+
+---
+
+in `m` from [feature.v](<feature.v#L17>)
+--- cycle_a ---
+```systemverilog
+localparam logic CYCLE_A = CYCLE_B
+```
+
+
+---
+
+in `m` from [feature.v](<feature.v#L18>)

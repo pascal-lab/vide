@@ -4,6 +4,7 @@ use hir_def::{
     declaration::Declaration,
     def_id::DefId,
     expr::{
+        ExprId,
         data_ty::DataTy,
         declarator::{DeclId, DeclaratorParent},
     },
@@ -11,7 +12,7 @@ use hir_def::{
     module::{
         ModuleKind,
         clocking::ClockingBlockId,
-        instantiation::InstanceId,
+        instantiation::{InstanceId, ParamAssign},
         port::{NonAnsiPortId, Ports},
     },
     owner::OwnerId,
@@ -22,18 +23,21 @@ use hir_def::{
 use hir_semantics::semantics::Semantics;
 use hir_ty::display::HirDisplay;
 use itertools::Itertools;
+use preproc_expand::file::HirFileId;
 use syntax::{
-    SyntaxCursorExt, SyntaxNodeExt,
+    SyntaxCursorExt, SyntaxNode, SyntaxNodeExt,
     has_text_range::HasTextRange,
     token::SyntaxTokenWithParentExt,
     trivia::{TriviaExt, TriviaKindExt},
     value::SVInt,
 };
+use utils::text_edit::TextRange;
 
 use crate::{
     db::{line_index_db::LineIndexDb, root_db::RootDb},
     markup::{Markup, display_project_path, file_link_target, inline_code, markdown_link},
-    module_resolution::resolve_module_name,
+    module_resolution::{resolve_module_name, resolve_named_param_in_module},
+    param_eval,
     references::search::resolve_source_range,
 };
 
@@ -291,6 +295,9 @@ fn render_def_origin(
         res.title(&title);
     }
 
+    if let Some(value) = render_param_value(sema, origin) {
+        res.metadata_line(&value);
+    }
     if let Some(metadata) = render_definition_metadata(sema, origin, anchor_file_id) {
         res.metadata_line(&metadata);
     }
@@ -309,6 +316,24 @@ fn render_definition_title(db: &RootDb, def: DefId) -> Option<String> {
     let kind = def.display_label(db)?;
 
     Some(format!("{kind} {}", inline_code(name.as_str())))
+}
+
+/// The evaluated value of a parameter declaration, shown as a hover metadata
+/// line (e.g. `value: `10``). Only parameters render one; declarations whose
+/// initializer cannot be folded faithfully stay silent.
+fn render_param_value(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<String> {
+    let decl_id = origin.as_decl(sema.db)?;
+    let container = decl_id.cont_id.data(sema.db);
+    let DeclaratorParent::DeclarationId(declaration_id) =
+        container.declarator(decl_id.value).parent
+    else {
+        return None;
+    };
+    if !matches!(container.declaration(declaration_id), Declaration::ParamDecl(_)) {
+        return None;
+    }
+    let value = param_eval::param_value(sema.db, decl_id)?;
+    Some(format!("value: {}", inline_code(&value.to_string())))
 }
 
 fn render_signature(sema: &Semantics<RootDb>, origin: &DefOrigin) -> Option<String> {
@@ -522,9 +547,51 @@ fn render_instance_signature(db: &RootDb, instance_id: OwnerRef<InstanceId>) -> 
     {
         signature.push_str("\n\n");
         signature.push_str(&module_signature);
+        if let Some(lines) = render_effective_params(db, instance_id, target_module_id) {
+            signature.push_str("\n\neffective parameters:\n");
+            signature.push_str(&lines.join("\n"));
+        }
     }
 
     Some(signature)
+}
+
+/// Per-parameter effective values for one instantiation: an override passed at
+/// this site wins, and parameters depending on overridden ones re-evaluate.
+/// The section is skipped when nothing evaluates and nothing is overridden.
+fn render_effective_params(
+    db: &RootDb,
+    instance_id: OwnerRef<InstanceId>,
+    target_module_id: OwnerId,
+) -> Option<Vec<String>> {
+    let overrides = param_eval::overrides_for_instance(db, instance_id);
+    let params = param_eval::effective_params(db, target_module_id, &overrides);
+    let interesting = params.iter().any(|param| param.overridden || param.value.is_some());
+    if !interesting {
+        return None;
+    }
+
+    let lines = params
+        .iter()
+        .map(|param| {
+            let mut line = match &param.value {
+                Some(value) => format!("{} {} = {value}", param.keyword, param.name),
+                None => {
+                    match param.initializer.and_then(|init| {
+                        OwnerRef::new(target_module_id, init).display_source(db).ok()
+                    }) {
+                        Some(raw) => format!("{} {} = {raw}", param.keyword, param.name),
+                        None => format!("{} {}", param.keyword, param.name),
+                    }
+                }
+            };
+            if param.overridden {
+                line.push_str(" // overridden");
+            }
+            line
+        })
+        .collect_vec();
+    Some(lines)
 }
 
 fn render_clocking_block_signature(
@@ -752,4 +819,84 @@ fn render_definition_metadata(
         parts.push(format!("from {source}"));
     }
     (!parts.is_empty()).then(|| parts.join(" "))
+}
+
+/// The "Override" section for hovers that land on a `#(...)` parameter
+/// assignment: the target parameter with its effective value, evaluated in the
+/// instantiating module's scope.
+///
+/// The section only renders when the hover is anchored to the assignment
+/// itself — either `def` is the parameter the assignment targets (hovering the
+/// `.name` of a named assignment) or `root_expr` is the assignment's root
+/// expression (hovering the value passed by an ordered assignment).
+pub(crate) fn render_param_override_section(
+    sema: &Semantics<RootDb>,
+    file_id: HirFileId,
+    node: SyntaxNode<'_>,
+    range: TextRange,
+    def: Option<DefId>,
+    root_expr: Option<OwnerRef<ExprId>>,
+) -> Option<Markup> {
+    let db = sema.db;
+    let container = sema.container_for_node(file_id, node)?;
+    let (owner, instantiation) = param_eval::instantiation_covering(db, container, range)?;
+    let from_file = owner.file(db).source_file_id(db)?;
+    let target_module_id =
+        crate::module_resolution::resolve_hir_instantiation_target(db, from_file, &instantiation)?;
+
+    let body = db.body_with_source_map(owner);
+    for (idx, assign_id) in instantiation.param_assigns.iter().enumerate() {
+        let Some(assign_src) = body.source_info(db, *assign_id) else { continue };
+        if !assign_src.full_range().contains_range(range) {
+            continue;
+        }
+        let assign = body.get(*assign_id);
+        let target_decl = match assign {
+            ParamAssign::Ordered(_) => {
+                let target_body = db.body_with_source_map(target_module_id);
+                hir_def::module::overridable_param_id_by_idx(target_body.data_ref(), idx)
+                    .map(|decl_id| OwnerRef::new(target_module_id, decl_id))?
+            }
+            ParamAssign::Named(Some(name), _) => {
+                resolve_named_param_in_module(db, target_module_id, name)
+                    .unique()?
+                    .primary_origin(db)
+                    .as_decl(db)?
+            }
+            ParamAssign::Named(None, _) => return None,
+        };
+
+        // Only anchor hovers: the resolved definition must be the targeted
+        // parameter, or the hovered expression must be the whole override
+        // expression rather than some identifier inside it.
+        if let Some(def) = def
+            && DefId::from_source(db, target_decl) != def
+        {
+            return None;
+        }
+        if let Some(root_expr) = root_expr {
+            let assign_expr = match assign {
+                ParamAssign::Ordered(expr) | ParamAssign::Named(_, Some(expr)) => *expr,
+                ParamAssign::Named(_, None) => return None,
+            };
+            if OwnerRef::new(owner, assign_expr) != root_expr {
+                return None;
+            }
+        }
+
+        let overrides =
+            param_eval::instantiation_param_overrides(db, owner, from_file, &instantiation);
+        let value = overrides.get(&target_decl)?;
+        let name = target_decl.cont_id.data(db).declarator(target_decl.value).name.clone()?;
+
+        let mut res = Markup::new();
+        res.section("Override");
+        res.push_with_code_fence(&format!("{name} = {value}"));
+        let default = param_eval::param_value(db, target_decl);
+        if let Some(default) = default.filter(|default| default != value) {
+            res.metadata_line(&format!("default {default}"));
+        }
+        return Some(res);
+    }
+    None
 }

@@ -12,6 +12,7 @@ use hir_def::{
     owner::OwnerId,
     source_map::{Lowered, SourceInfo},
 };
+use hir_ty::const_eval::ConstValue;
 use preproc_expand::{
     file::HirFileId,
     preproc::{MacroCallResolution, macro_call_resolutions_in_range},
@@ -33,6 +34,7 @@ use crate::{
     db::root_db::RootDb,
     markup::Markup,
     module_resolution::{resolve_connection_port, resolve_module_name, resolve_port_metadata},
+    param_eval,
     references::search::resolve_source_range,
 };
 
@@ -454,13 +456,18 @@ fn process_instantiation(
                 let param_name = param_def.primary_origin(db).name(db)?;
                 check_or_throw!(!is_same_named_expr(module, *assign_expr, &param_name));
                 let target_range = param_def.primary_origin(db).range(db)?;
+                let tooltip = param_assignment_tooltip(
+                    &param_name,
+                    param_eval::eval_in_module(db, module_id, *assign_expr),
+                    param_eval::param_value(db, OwnerRef::new(target_module_id, param_id)),
+                );
                 collector.collect_src_hint(
                     assign_src,
                     Some(target_range),
                     None,
                     format!("{param_name}:"),
                     edits_for_conn(&param_name, assign_src),
-                    None,
+                    tooltip,
                 );
             };
         }
@@ -583,6 +590,23 @@ fn port_connection_tooltip(name: &str, direction: PortDirection) -> Markup {
     let mut tooltip = Markup::new();
     tooltip.push_with_code_fence(&format!("{direction} {name}"));
     tooltip
+}
+
+/// Tooltip for a positional parameter assignment: the value the override
+/// expression evaluates to in this module's scope, plus the parameter's
+/// default. Only rendered when the value folds.
+fn param_assignment_tooltip(
+    name: &str,
+    value: Option<ConstValue>,
+    default: Option<ConstValue>,
+) -> Option<Markup> {
+    let value = value?;
+    let mut markup = Markup::new();
+    markup.push_with_code_fence(&format!("{name} = {value}"));
+    if let Some(default) = default {
+        markup.print(&format!("default: {default}"));
+    }
+    Some(markup)
 }
 
 fn edits_for_conn(param: &str, conn_src: SourceInfo) -> Option<TextEdit> {
@@ -814,6 +838,21 @@ mod tests {
             hints.iter().any(|hint| hint.label == "→"),
             "expected a port-direction hint inside a generate block, got:\n{}",
             hint_snapshot(hints)
+        );
+    }
+
+    #[test]
+    fn ordered_parameter_hint_tooltip_shows_value_and_default() {
+        let source = "module child #(parameter P = 2); endmodule\n\
+            module top; localparam K = 4; child #(K + 1) u(); endmodule\n";
+        let (db, file_id) = db_with_file(source);
+        let hints =
+            inlay_hint(&db, file_id, TextRange::up_to(TextSize::of(source)), parameter_config());
+        let hint = hints.iter().find(|hint| hint.label == "P:").expect("parameter hint");
+
+        assert_eq!(
+            hint.tooltip.as_ref().map(Markup::as_str),
+            Some("```systemverilog\nP = 5\n```\ndefault: 2")
         );
     }
 
